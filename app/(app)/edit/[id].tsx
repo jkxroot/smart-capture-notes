@@ -1,53 +1,59 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
   ScrollView,
-  KeyboardAvoidingView,
-  Platform,
+  BackHandler,
   ActivityIndicator,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Image } from 'expo-image';
+import { Ionicons } from '@expo/vector-icons';
 import { useRecords } from '../../../src/context/RecordsContext';
 import { useTheme } from '../../../src/context/ThemeContext';
 import { useToast } from '../../../src/context/ToastContext';
+import { useNetwork } from '../../../src/context/NetworkContext';
 import { storageService } from '../../../src/services/storageService';
 import { useImagePicker } from '../../../src/hooks/useImagePicker';
-import { ImagePreview } from '../../../src/components/ImagePreview';
-import { CategoryChip } from '../../../src/components/CategoryChip';
+import { Screen } from '../../../src/components/Screen';
+import { Input } from '../../../src/components/Input';
+import { Button } from '../../../src/components/Button';
+import { Chip } from '../../../src/components/Chip';
+import { ActionSheet, ActionOption } from '../../../src/components/ActionSheet';
+import { ConfirmDialog } from '../../../src/components/ConfirmDialog';
 import { Category, CATEGORIES } from '../../../src/types/record';
-import {
-  validateRecordTitle,
-  validateRecordNotes,
-  validateRecordCategory,
-} from '../../../src/utils/validation';
+import { validateRecordTitle, validateRecordNotes } from '../../../src/utils/validation';
 import { APP_CONFIG } from '../../../src/utils/constants';
 
 export default function EditRecordScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { getRecordById, updateRecord } = useRecords();
-  const { colors, typography, spacing, borderRadius } = useTheme();
+  const { colors, typography, spacing } = useTheme();
   const { showToast } = useToast();
+  const { isOffline } = useNetwork();
 
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+
+  const [initialTitle, setInitialTitle] = useState('');
+  const [initialNotes, setInitialNotes] = useState('');
+  const [initialCategory, setInitialCategory] = useState<Category>('Personal');
 
   const [title, setTitle] = useState('');
   const [notes, setNotes] = useState('');
   const [category, setCategory] = useState<Category>('Personal');
 
-  // Existing image from database
-  const [existingImagePath, setExistingImagePath] = useState<string | null>(null);
   const [existingImageUrl, setExistingImageUrl] = useState<string | null>(null);
   const [removeExistingImage, setRemoveExistingImage] = useState(false);
 
-  // Field errors
   const [titleError, setTitleError] = useState<string | null>(null);
   const [notesError, setNotesError] = useState<string | null>(null);
+
+  const [showImageSheet, setShowImageSheet] = useState(false);
+  const [showDiscardDialog, setShowDiscardDialog] = useState(false);
 
   const {
     selectedImageUri,
@@ -66,9 +72,11 @@ export default function EditRecordScreen() {
       .then((record) => {
         if (isMounted && record) {
           setTitle(record.title);
+          setInitialTitle(record.title);
           setNotes(record.notes || '');
+          setInitialNotes(record.notes || '');
           setCategory(record.category);
-          setExistingImagePath(record.image_path);
+          setInitialCategory(record.category);
 
           if (record.image_path) {
             storageService.getSignedUrl(record.image_path).then(({ url }) => {
@@ -89,6 +97,34 @@ export default function EditRecordScreen() {
     };
   }, [id, getRecordById]);
 
+  const hasUnsavedChanges =
+    title !== initialTitle ||
+    notes !== initialNotes ||
+    category !== initialCategory ||
+    Boolean(selectedImageUri) ||
+    removeExistingImage;
+
+  useEffect(() => {
+    const onBackPress = () => {
+      if (hasUnsavedChanges) {
+        setShowDiscardDialog(true);
+        return true;
+      }
+      return false;
+    };
+
+    const sub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => sub.remove();
+  }, [hasUnsavedChanges]);
+
+  const handleBack = () => {
+    if (hasUnsavedChanges) {
+      setShowDiscardDialog(true);
+    } else {
+      router.back();
+    }
+  };
+
   const handleRemovePhoto = () => {
     clearImage();
     setRemoveExistingImage(true);
@@ -96,14 +132,18 @@ export default function EditRecordScreen() {
   };
 
   const handleSave = async () => {
-    if (!id) return;
+    if (!id || submitting || isProcessing) return;
+
+    if (isOffline) {
+      showToast('You are offline. Cannot update note without internet.', 'error');
+      return;
+    }
 
     setTitleError(null);
     setNotesError(null);
 
     const titleValidation = validateRecordTitle(title);
     const notesValidation = validateRecordNotes(notes);
-    const catValidation = validateRecordCategory(category);
 
     let hasError = false;
     if (!titleValidation.isValid) {
@@ -114,10 +154,6 @@ export default function EditRecordScreen() {
       setNotesError(notesValidation.error ?? null);
       hasError = true;
     }
-    if (!catValidation.isValid) {
-      showToast(catValidation.error || 'Invalid category', 'error');
-      hasError = true;
-    }
 
     if (hasError) return;
 
@@ -126,8 +162,8 @@ export default function EditRecordScreen() {
       const result = await updateRecord(
         id,
         {
-          title,
-          notes: notes.trim() ? notes : null,
+          title: title.trim(),
+          notes: notes.trim() ? notes.trim() : null,
           category,
         },
         selectedImageUri,
@@ -135,10 +171,10 @@ export default function EditRecordScreen() {
       );
 
       if (result.success) {
-        showToast('Record updated successfully!', 'success');
+        showToast('Note updated.', 'success');
         router.back();
       } else {
-        showToast(result.error || 'Failed to update record.', 'error');
+        showToast(result.error || 'Failed to update note.', 'error');
       }
     } catch {
       showToast('An unexpected error occurred.', 'error');
@@ -149,79 +185,158 @@ export default function EditRecordScreen() {
 
   if (loading) {
     return (
-      <View style={[styles.centerContainer, { backgroundColor: colors.background }]}>
-        <ActivityIndicator size="large" color={colors.primary} />
-      </View>
+      <Screen edges={['top', 'left', 'right']}>
+        <View style={styles.centerContainer}>
+          <ActivityIndicator size="small" color={colors.accent} />
+        </View>
+      </Screen>
     );
   }
 
-  // Display URI: either newly chosen image or existing image URL if not marked for removal
-  const displayImageUri = selectedImageUri || (!removeExistingImage ? existingImageUrl : null);
+  const isFormValid = title.trim().length >= 1 && title.trim().length <= APP_CONFIG.MAX_TITLE_LENGTH;
+  const currentPhotoUri = selectedImageUri || (!removeExistingImage ? existingImageUrl : null);
+
+  const imageOptions: ActionOption[] = [
+    {
+      label: 'Take Photo',
+      icon: 'camera-outline',
+      onPress: () => {
+        takePhoto();
+      },
+    },
+    {
+      label: 'Choose from Library',
+      icon: 'images-outline',
+      onPress: () => {
+        pickFromGallery();
+      },
+    },
+  ];
+
+  if (currentPhotoUri) {
+    imageOptions.push({
+      label: 'Remove Photo',
+      icon: 'trash-outline',
+      destructive: true,
+      onPress: handleRemovePhoto,
+    });
+  }
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
+    <Screen avoidKeyboard edges={['top', 'left', 'right']}>
+      {/* Top Header */}
+      <View style={[styles.topBar, { borderBottomColor: colors.borderSubtle, paddingHorizontal: spacing.lg }]}>
+        <TouchableOpacity
+          onPress={handleBack}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          accessibilityRole="button"
+          accessibilityLabel="Cancel editing note"
+        >
+          <Text style={[typography.bodyMedium, { color: colors.textSecondary }]}>
+            Cancel
+          </Text>
+        </TouchableOpacity>
+
+        <Text style={[typography.h3, { color: colors.textPrimary }]}>
+          Edit Note
+        </Text>
+
+        <View style={{ width: 44 }} />
+      </View>
+
       <ScrollView
         contentContainerStyle={[styles.scrollContent, { padding: spacing.lg }]}
         keyboardShouldPersistTaps="handled"
       >
-        {/* Title Input */}
-        <View style={styles.formGroup}>
-          <View style={styles.labelRow}>
-            <Text style={[styles.label, typography.labelMedium, { color: colors.textPrimary }]}>
-              Title <Text style={{ color: colors.error }}>*</Text>
-            </Text>
-            <Text
-              style={[
-                styles.charCounter,
-                typography.caption,
-                {
-                  color:
-                    title.length > APP_CONFIG.MAX_TITLE_LENGTH
-                      ? colors.error
-                      : colors.textTertiary,
-                },
-              ]}
-            >
-              {title.length}/{APP_CONFIG.MAX_TITLE_LENGTH}
-            </Text>
+        {/* Large Image Header (4:3 ratio) */}
+        {currentPhotoUri ? (
+          <View style={[styles.imageHeaderWrapper, { borderRadius: 16 }]}>
+            <Image
+              source={{ uri: currentPhotoUri }}
+              style={[styles.attachedImage, { borderRadius: 16 }]}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+              accessibilityLabel="Attached note photo preview"
+            />
+            <View style={styles.imageActionRow}>
+              <TouchableOpacity
+                onPress={() => setShowImageSheet(true)}
+                activeOpacity={0.7}
+                style={[
+                  styles.imagePillBtn,
+                  { backgroundColor: colors.surface, borderColor: colors.border },
+                ]}
+              >
+                <Text style={[typography.labelSmall, { color: colors.textPrimary }]}>
+                  Change
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={handleRemovePhoto}
+                activeOpacity={0.7}
+                style={[
+                  styles.imagePillBtn,
+                  { backgroundColor: colors.dangerLight, borderColor: 'transparent' },
+                ]}
+              >
+                <Text style={[typography.labelSmall, { color: colors.danger }]}>
+                  Remove
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
-          <TextInput
+        ) : (
+          <TouchableOpacity
+            onPress={() => setShowImageSheet(true)}
+            activeOpacity={0.7}
             style={[
-              styles.input,
-              typography.bodyLarge,
+              styles.emptyImagePlaceholder,
               {
-                backgroundColor: colors.surface,
-                borderColor: titleError ? colors.error : colors.border,
-                borderRadius: borderRadius.md,
-                color: colors.textPrimary,
-                padding: spacing.md,
+                borderColor: colors.border,
+                backgroundColor: colors.surfaceMuted,
+                borderRadius: 16,
               },
             ]}
-            placeholder="Title"
-            placeholderTextColor={colors.textTertiary}
-            value={title}
-            onChangeText={(text) => {
-              setTitle(text);
-              if (titleError) setTitleError(null);
-            }}
-            maxLength={APP_CONFIG.MAX_TITLE_LENGTH}
-            editable={!submitting}
-            accessibilityLabel="Edit note title input"
-          />
-          {titleError ? (
-            <Text style={[styles.inlineError, typography.bodySmall, { color: colors.error }]}>
-              {titleError}
+            accessibilityRole="button"
+            accessibilityLabel="Add photo attachment"
+          >
+            <Ionicons name="camera-outline" size={26} color={colors.textTertiary} />
+            <Text
+              style={[
+                typography.labelMedium,
+                { color: colors.textSecondary, marginTop: 6 },
+              ]}
+            >
+              Add Photo
             </Text>
-          ) : null}
-        </View>
+          </TouchableOpacity>
+        )}
 
-        {/* Category Picker Chips */}
-        <View style={styles.formGroup}>
-          <Text style={[styles.label, typography.labelMedium, { color: colors.textPrimary }]}>
-            Category <Text style={{ color: colors.error }}>*</Text>
+        {/* Title Input */}
+        <Input
+          label="Title"
+          placeholder="Note title"
+          value={title}
+          onChangeText={(text) => {
+            setTitle(text);
+            if (titleError) setTitleError(null);
+          }}
+          error={titleError}
+          maxLength={APP_CONFIG.MAX_TITLE_LENGTH}
+          showCounterNearLimit
+          editable={!submitting}
+          containerStyle={{ marginTop: spacing.md }}
+        />
+
+        {/* Category Chips */}
+        <View style={styles.categorySection}>
+          <Text
+            style={[
+              typography.labelMedium,
+              { color: colors.textSecondary, marginBottom: 8 },
+            ]}
+          >
+            Category
           </Text>
           <ScrollView
             horizontal
@@ -229,9 +344,9 @@ export default function EditRecordScreen() {
             contentContainerStyle={styles.categoryRow}
           >
             {CATEGORIES.map((cat) => (
-              <CategoryChip
+              <Chip
                 key={cat}
-                category={cat}
+                label={cat}
                 selected={category === cat}
                 onPress={() => setCategory(cat)}
               />
@@ -239,169 +354,122 @@ export default function EditRecordScreen() {
           </ScrollView>
         </View>
 
-        {/* Photo Attachment Preview / Editor */}
-        <View style={styles.formGroup}>
-          <Text style={[styles.label, typography.labelMedium, { color: colors.textPrimary }]}>
-            Photo Attachment
-          </Text>
-          <ImagePreview
-            imageUri={displayImageUri}
-            onTakePhoto={takePhoto}
-            onPickGallery={pickFromGallery}
-            onRemove={handleRemovePhoto}
-            isProcessing={isProcessing}
-          />
-        </View>
-
-        {/* Notes Input */}
-        <View style={styles.formGroup}>
-          <View style={styles.labelRow}>
-            <Text style={[styles.label, typography.labelMedium, { color: colors.textPrimary }]}>
-              Notes
-            </Text>
-            <Text
-              style={[
-                styles.charCounter,
-                typography.caption,
-                {
-                  color:
-                    notes.length > APP_CONFIG.MAX_NOTES_LENGTH
-                      ? colors.error
-                      : colors.textTertiary,
-                },
-              ]}
-            >
-              {notes.length}/{APP_CONFIG.MAX_NOTES_LENGTH}
-            </Text>
-          </View>
-          <TextInput
-            style={[
-              styles.textArea,
-              typography.bodyMedium,
-              {
-                backgroundColor: colors.surface,
-                borderColor: notesError ? colors.error : colors.border,
-                borderRadius: borderRadius.md,
-                color: colors.textPrimary,
-                padding: spacing.md,
-              },
-            ]}
-            placeholder="Add detailed notes..."
-            placeholderTextColor={colors.textTertiary}
-            value={notes}
-            onChangeText={(text) => {
-              setNotes(text);
-              if (notesError) setNotesError(null);
-            }}
-            multiline
-            numberOfLines={6}
-            textAlignVertical="top"
-            maxLength={APP_CONFIG.MAX_NOTES_LENGTH}
-            editable={!submitting}
-            accessibilityLabel="Edit note content input"
-          />
-          {notesError ? (
-            <Text style={[styles.inlineError, typography.bodySmall, { color: colors.error }]}>
-              {notesError}
-            </Text>
-          ) : null}
-        </View>
-
-        {/* Submit Button */}
-        <TouchableOpacity
-          style={[
-            styles.submitButton,
-            {
-              backgroundColor: colors.primary,
-              borderRadius: borderRadius.md,
-              opacity: submitting || isProcessing ? 0.7 : 1,
-            },
-          ]}
-          onPress={handleSave}
-          disabled={submitting || isProcessing}
-          activeOpacity={0.8}
-          accessibilityRole="button"
-          accessibilityLabel="Save Changes"
-        >
-          {submitting ? (
-            <View style={styles.buttonLoadingRow}>
-              <ActivityIndicator color={colors.primaryForeground} size="small" />
-              <Text
-                style={[
-                  styles.submitButtonText,
-                  typography.labelLarge,
-                  { color: colors.primaryForeground, marginLeft: 8 },
-                ]}
-              >
-                Updating Note...
-              </Text>
-            </View>
-          ) : (
-            <Text
-              style={[
-                styles.submitButtonText,
-                typography.labelLarge,
-                { color: colors.primaryForeground },
-              ]}
-            >
-              Save Changes
-            </Text>
-          )}
-        </TouchableOpacity>
+        {/* Auto-growing Notes Input */}
+        <Input
+          label="Notes"
+          placeholder="Write your note..."
+          value={notes}
+          onChangeText={(text) => {
+            setNotes(text);
+            if (notesError) setNotesError(null);
+          }}
+          error={notesError}
+          multiline
+          maxLength={APP_CONFIG.MAX_NOTES_LENGTH}
+          showCounterNearLimit
+          editable={!submitting}
+        />
       </ScrollView>
-    </KeyboardAvoidingView>
+
+      {/* Sticky Save Button Above Keyboard */}
+      <View
+        style={[
+          styles.stickyFooter,
+          {
+            backgroundColor: colors.surface,
+            borderTopColor: colors.borderSubtle,
+            padding: spacing.md,
+          },
+        ]}
+      >
+        <Button
+          label={submitting ? 'Saving...' : 'Save Changes'}
+          onPress={handleSave}
+          disabled={!isFormValid || submitting || isProcessing}
+          loading={submitting || isProcessing}
+        />
+      </View>
+
+      <ActionSheet
+        visible={showImageSheet}
+        title="Photo Attachment"
+        options={imageOptions}
+        onClose={() => setShowImageSheet(false)}
+      />
+
+      <ConfirmDialog
+        visible={showDiscardDialog}
+        title="Discard Changes"
+        message="You have unsaved changes. Are you sure you want to discard them?"
+        confirmLabel="Discard"
+        cancelLabel="Keep Editing"
+        isDestructive
+        onConfirm={() => {
+          setShowDiscardDialog(false);
+          router.back();
+        }}
+        onCancel={() => setShowDiscardDialog(false)}
+      />
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingBottom: 40,
-  },
   centerContainer: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  formGroup: {
-    marginBottom: 20,
-  },
-  labelRow: {
+  topBar: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 6,
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  label: {},
-  charCounter: {},
-  input: {
+  scrollContent: {
+    paddingBottom: 20,
+  },
+  emptyImagePlaceholder: {
+    width: '100%',
+    aspectRatio: 4 / 3,
     borderWidth: 1,
-    minHeight: 48,
-  },
-  textArea: {
-    borderWidth: 1,
-    minHeight: 120,
-  },
-  inlineError: {
-    marginTop: 4,
-  },
-  categoryRow: {
-    paddingVertical: 4,
-  },
-  submitButton: {
-    minHeight: 50,
+    borderStyle: 'dashed',
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 10,
-    marginBottom: 30,
+    marginBottom: 20,
   },
-  buttonLoadingRow: {
+  imageHeaderWrapper: {
+    width: '100%',
+    aspectRatio: 4 / 3,
+    position: 'relative',
+    overflow: 'hidden',
+    marginBottom: 20,
+  },
+  attachedImage: {
+    width: '100%',
+    height: '100%',
+  },
+  imageActionRow: {
+    position: 'absolute',
+    bottom: 8,
+    right: 8,
     flexDirection: 'row',
-    alignItems: 'center',
+    gap: 6,
   },
-  submitButtonText: {
-    fontWeight: '700',
+  imagePillBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 9999,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  categorySection: {
+    marginBottom: 16,
+  },
+  categoryRow: {
+    paddingVertical: 2,
+  },
+  stickyFooter: {
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
 });

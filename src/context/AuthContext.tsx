@@ -4,18 +4,22 @@ import React, {
   useEffect,
   useState,
   useCallback,
+  useRef,
 } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { authService, AuthResponse } from '../services/authService';
+import { storageService } from '../services/storageService';
 
 interface AuthContextValue {
   session: Session | null;
   user: User | null;
   loading: boolean;
+  isSigningOut: boolean;
   signIn: (email: string, password: string) => Promise<AuthResponse>;
   signUp: (email: string, password: string) => Promise<AuthResponse>;
-  signOut: () => Promise<{ error: string | null }>;
+  signOut: () => Promise<void>;
+  handleSessionExpired: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -24,8 +28,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
+  const [isSigningOut, setIsSigningOut] = useState<boolean>(false);
+  const isSigningOutRef = useRef<boolean>(false);
 
-  // Initialize session from storage on app launch
   useEffect(() => {
     if (!isSupabaseConfigured) {
       setLoading(false);
@@ -34,7 +39,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     let isMounted = true;
 
-    // Get initial session
     supabase.auth
       .getSession()
       .then(({ data: { session: initialSession } }) => {
@@ -50,15 +54,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       });
 
-    // Listen for auth state changes (sign in, sign out, token refresh)
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, currentSession) => {
-      if (isMounted) {
-        setSession(currentSession);
-        setUser(currentSession?.user ?? null);
+    } = supabase.auth.onAuthStateChange((event, currentSession) => {
+      if (!isMounted) return;
+
+      if (event === 'SIGNED_OUT' || !currentSession) {
+        storageService.clearCache();
+        setSession(null);
+        setUser(null);
         setLoading(false);
+        isSigningOutRef.current = false;
+        setIsSigningOut(false);
+        return;
       }
+
+      setSession(currentSession);
+      setUser(currentSession.user ?? null);
+      setLoading(false);
     });
 
     return () => {
@@ -86,13 +99,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const signOut = useCallback(async () => {
-    const res = await authService.signOut();
-    if (!res.error) {
-      setSession(null);
-      setUser(null);
+    isSigningOutRef.current = true;
+    setIsSigningOut(true);
+
+    storageService.clearCache();
+    setSession(null);
+    setUser(null);
+
+    try {
+      await authService.signOut();
+    } catch {
+      // Intentionally swallowed on signout
+    } finally {
+      isSigningOutRef.current = false;
+      setIsSigningOut(false);
     }
-    return res;
   }, []);
+
+  const handleSessionExpired = useCallback(async () => {
+    await signOut();
+  }, [signOut]);
 
   return (
     <AuthContext.Provider
@@ -100,9 +126,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         session,
         user,
         loading,
+        isSigningOut,
         signIn,
         signUp,
         signOut,
+        handleSessionExpired,
       }}
     >
       {children}

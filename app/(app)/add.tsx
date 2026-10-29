@@ -1,44 +1,47 @@
-import React, { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
   ScrollView,
-  KeyboardAvoidingView,
-  Platform,
-  ActivityIndicator,
+  BackHandler,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { Image } from 'expo-image';
+import { Ionicons } from '@expo/vector-icons';
 import { useRecords } from '../../src/context/RecordsContext';
 import { useTheme } from '../../src/context/ThemeContext';
 import { useToast } from '../../src/context/ToastContext';
+import { useNetwork } from '../../src/context/NetworkContext';
 import { useImagePicker } from '../../src/hooks/useImagePicker';
-import { ImagePreview } from '../../src/components/ImagePreview';
-import { CategoryChip } from '../../src/components/CategoryChip';
+import { Screen } from '../../src/components/Screen';
+import { Input } from '../../src/components/Input';
+import { Button } from '../../src/components/Button';
+import { Chip } from '../../src/components/Chip';
+import { ActionSheet, ActionOption } from '../../src/components/ActionSheet';
+import { ConfirmDialog } from '../../src/components/ConfirmDialog';
 import { Category, CATEGORIES } from '../../src/types/record';
-import {
-  validateRecordTitle,
-  validateRecordNotes,
-  validateRecordCategory,
-} from '../../src/utils/validation';
+import { validateRecordTitle, validateRecordNotes } from '../../src/utils/validation';
 import { APP_CONFIG } from '../../src/utils/constants';
 
 export default function AddRecordScreen() {
   const router = useRouter();
   const { createRecord } = useRecords();
-  const { colors, typography, spacing, borderRadius } = useTheme();
+  const { colors, typography, spacing } = useTheme();
   const { showToast } = useToast();
+  const { isOffline } = useNetwork();
 
   const [title, setTitle] = useState('');
   const [notes, setNotes] = useState('');
   const [category, setCategory] = useState<Category>('Personal');
   const [submitting, setSubmitting] = useState(false);
 
-  // Field errors
   const [titleError, setTitleError] = useState<string | null>(null);
   const [notesError, setNotesError] = useState<string | null>(null);
+
+  const [showImageSheet, setShowImageSheet] = useState(false);
+  const [showDiscardDialog, setShowDiscardDialog] = useState(false);
 
   const {
     selectedImageUri,
@@ -48,13 +51,44 @@ export default function AddRecordScreen() {
     clearImage,
   } = useImagePicker();
 
+  const hasUnsavedChanges =
+    title.trim().length > 0 || notes.trim().length > 0 || Boolean(selectedImageUri);
+
+  // Hardware back handler for Android
+  useEffect(() => {
+    const onBackPress = () => {
+      if (hasUnsavedChanges) {
+        setShowDiscardDialog(true);
+        return true;
+      }
+      return false;
+    };
+
+    const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => subscription.remove();
+  }, [hasUnsavedChanges]);
+
+  const handleBack = () => {
+    if (hasUnsavedChanges) {
+      setShowDiscardDialog(true);
+    } else {
+      router.back();
+    }
+  };
+
   const handleSave = async () => {
+    if (submitting || isProcessing) return;
+
+    if (isOffline) {
+      showToast('You are offline. Cannot save note without internet.', 'error');
+      return;
+    }
+
     setTitleError(null);
     setNotesError(null);
 
     const titleValidation = validateRecordTitle(title);
     const notesValidation = validateRecordNotes(notes);
-    const catValidation = validateRecordCategory(category);
 
     let hasError = false;
     if (!titleValidation.isValid) {
@@ -65,10 +99,6 @@ export default function AddRecordScreen() {
       setNotesError(notesValidation.error ?? null);
       hasError = true;
     }
-    if (!catValidation.isValid) {
-      showToast(catValidation.error || 'Invalid category', 'error');
-      hasError = true;
-    }
 
     if (hasError) return;
 
@@ -76,18 +106,18 @@ export default function AddRecordScreen() {
     try {
       const result = await createRecord(
         {
-          title,
-          notes: notes.trim() ? notes : null,
+          title: title.trim(),
+          notes: notes.trim() ? notes.trim() : null,
           category,
         },
         selectedImageUri
       );
 
       if (result.success) {
-        showToast('Note created successfully!', 'success');
+        showToast('Note created.', 'success');
         router.back();
       } else {
-        showToast(result.error || 'Failed to create note.', 'error');
+        showToast(result.error || 'Failed to save note.', 'error');
       }
     } catch {
       showToast('An unexpected error occurred.', 'error');
@@ -96,70 +126,149 @@ export default function AddRecordScreen() {
     }
   };
 
+  const isFormValid = title.trim().length >= 1 && title.trim().length <= APP_CONFIG.MAX_TITLE_LENGTH;
+
+  const imageOptions: ActionOption[] = [
+    {
+      label: 'Take Photo',
+      icon: 'camera-outline',
+      onPress: () => {
+        takePhoto();
+      },
+    },
+    {
+      label: 'Choose from Library',
+      icon: 'images-outline',
+      onPress: () => {
+        pickFromGallery();
+      },
+    },
+  ];
+
+  if (selectedImageUri) {
+    imageOptions.push({
+      label: 'Remove Photo',
+      icon: 'trash-outline',
+      destructive: true,
+      onPress: clearImage,
+    });
+  }
+
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
+    <Screen avoidKeyboard edges={['top', 'left', 'right']}>
+      {/* Top Bar with Cancel and Title */}
+      <View style={[styles.topBar, { borderBottomColor: colors.borderSubtle, paddingHorizontal: spacing.lg }]}>
+        <TouchableOpacity
+          onPress={handleBack}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          accessibilityRole="button"
+          accessibilityLabel="Cancel creating note"
+        >
+          <Text style={[typography.bodyMedium, { color: colors.textSecondary }]}>
+            Cancel
+          </Text>
+        </TouchableOpacity>
+
+        <Text style={[typography.h3, { color: colors.textPrimary }]}>
+          New Note
+        </Text>
+
+        <View style={{ width: 44 }} />
+      </View>
+
       <ScrollView
         contentContainerStyle={[styles.scrollContent, { padding: spacing.lg }]}
         keyboardShouldPersistTaps="handled"
       >
-        {/* Title Input */}
-        <View style={styles.formGroup}>
-          <View style={styles.labelRow}>
-            <Text style={[styles.label, typography.labelMedium, { color: colors.textPrimary }]}>
-              Title <Text style={{ color: colors.error }}>*</Text>
-            </Text>
-            <Text
-              style={[
-                styles.charCounter,
-                typography.caption,
-                {
-                  color:
-                    title.length > APP_CONFIG.MAX_TITLE_LENGTH
-                      ? colors.error
-                      : colors.textTertiary,
-                },
-              ]}
-            >
-              {title.length}/{APP_CONFIG.MAX_TITLE_LENGTH}
-            </Text>
+        {/* Large Image Header Area (4:3 ratio) */}
+        {selectedImageUri ? (
+          <View style={[styles.imageHeaderWrapper, { borderRadius: 16 }]}>
+            <Image
+              source={{ uri: selectedImageUri }}
+              style={[styles.attachedImage, { borderRadius: 16 }]}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+              accessibilityLabel="Attached photo preview"
+            />
+            <View style={styles.imageActionRow}>
+              <TouchableOpacity
+                onPress={() => setShowImageSheet(true)}
+                activeOpacity={0.7}
+                style={[
+                  styles.imagePillBtn,
+                  { backgroundColor: colors.surface, borderColor: colors.border },
+                ]}
+              >
+                <Text style={[typography.labelSmall, { color: colors.textPrimary }]}>
+                  Change
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={clearImage}
+                activeOpacity={0.7}
+                style={[
+                  styles.imagePillBtn,
+                  { backgroundColor: colors.dangerLight, borderColor: 'transparent' },
+                ]}
+              >
+                <Text style={[typography.labelSmall, { color: colors.danger }]}>
+                  Remove
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
-          <TextInput
+        ) : (
+          <TouchableOpacity
+            onPress={() => setShowImageSheet(true)}
+            activeOpacity={0.7}
             style={[
-              styles.input,
-              typography.bodyLarge,
+              styles.emptyImagePlaceholder,
               {
-                backgroundColor: colors.surface,
-                borderColor: titleError ? colors.error : colors.border,
-                borderRadius: borderRadius.md,
-                color: colors.textPrimary,
-                padding: spacing.md,
+                borderColor: colors.border,
+                backgroundColor: colors.surfaceMuted,
+                borderRadius: 16,
               },
             ]}
-            placeholder="e.g. Grocery list, Meeting minutes"
-            placeholderTextColor={colors.textTertiary}
-            value={title}
-            onChangeText={(text) => {
-              setTitle(text);
-              if (titleError) setTitleError(null);
-            }}
-            maxLength={APP_CONFIG.MAX_TITLE_LENGTH}
-            editable={!submitting}
-            accessibilityLabel="Note title input"
-          />
-          {titleError ? (
-            <Text style={[styles.inlineError, typography.bodySmall, { color: colors.error }]}>
-              {titleError}
+            accessibilityRole="button"
+            accessibilityLabel="Add photo attachment"
+          >
+            <Ionicons name="camera-outline" size={26} color={colors.textTertiary} />
+            <Text
+              style={[
+                typography.labelMedium,
+                { color: colors.textSecondary, marginTop: 6 },
+              ]}
+            >
+              Add Photo
             </Text>
-          ) : null}
-        </View>
+          </TouchableOpacity>
+        )}
 
-        {/* Category Picker Chips */}
-        <View style={styles.formGroup}>
-          <Text style={[styles.label, typography.labelMedium, { color: colors.textPrimary }]}>
-            Category <Text style={{ color: colors.error }}>*</Text>
+        {/* Title Input */}
+        <Input
+          label="Title"
+          placeholder="Note title"
+          value={title}
+          onChangeText={(text) => {
+            setTitle(text);
+            if (titleError) setTitleError(null);
+          }}
+          error={titleError}
+          maxLength={APP_CONFIG.MAX_TITLE_LENGTH}
+          showCounterNearLimit
+          editable={!submitting}
+          containerStyle={{ marginTop: spacing.md }}
+        />
+
+        {/* Category Chips */}
+        <View style={styles.categorySection}>
+          <Text
+            style={[
+              typography.labelMedium,
+              { color: colors.textSecondary, marginBottom: 8 },
+            ]}
+          >
+            Category
           </Text>
           <ScrollView
             horizontal
@@ -167,9 +276,9 @@ export default function AddRecordScreen() {
             contentContainerStyle={styles.categoryRow}
           >
             {CATEGORIES.map((cat) => (
-              <CategoryChip
+              <Chip
                 key={cat}
-                category={cat}
+                label={cat}
                 selected={category === cat}
                 onPress={() => setCategory(cat)}
               />
@@ -177,164 +286,117 @@ export default function AddRecordScreen() {
           </ScrollView>
         </View>
 
-        {/* Image Attachment Section */}
-        <View style={styles.formGroup}>
-          <Text style={[styles.label, typography.labelMedium, { color: colors.textPrimary }]}>
-            Photo Attachment
-          </Text>
-          <ImagePreview
-            imageUri={selectedImageUri}
-            onTakePhoto={takePhoto}
-            onPickGallery={pickFromGallery}
-            onRemove={clearImage}
-            isProcessing={isProcessing}
-          />
-        </View>
-
-        {/* Notes Input */}
-        <View style={styles.formGroup}>
-          <View style={styles.labelRow}>
-            <Text style={[styles.label, typography.labelMedium, { color: colors.textPrimary }]}>
-              Notes
-            </Text>
-            <Text
-              style={[
-                styles.charCounter,
-                typography.caption,
-                {
-                  color:
-                    notes.length > APP_CONFIG.MAX_NOTES_LENGTH
-                      ? colors.error
-                      : colors.textTertiary,
-                },
-              ]}
-            >
-              {notes.length}/{APP_CONFIG.MAX_NOTES_LENGTH}
-            </Text>
-          </View>
-          <TextInput
-            style={[
-              styles.textArea,
-              typography.bodyMedium,
-              {
-                backgroundColor: colors.surface,
-                borderColor: notesError ? colors.error : colors.border,
-                borderRadius: borderRadius.md,
-                color: colors.textPrimary,
-                padding: spacing.md,
-              },
-            ]}
-            placeholder="Add detailed notes, thoughts, or item breakdowns..."
-            placeholderTextColor={colors.textTertiary}
-            value={notes}
-            onChangeText={(text) => {
-              setNotes(text);
-              if (notesError) setNotesError(null);
-            }}
-            multiline
-            numberOfLines={6}
-            textAlignVertical="top"
-            maxLength={APP_CONFIG.MAX_NOTES_LENGTH}
-            editable={!submitting}
-            accessibilityLabel="Note content input"
-          />
-          {notesError ? (
-            <Text style={[styles.inlineError, typography.bodySmall, { color: colors.error }]}>
-              {notesError}
-            </Text>
-          ) : null}
-        </View>
-
-        {/* Submit Button */}
-        <TouchableOpacity
-          style={[
-            styles.submitButton,
-            {
-              backgroundColor: colors.primary,
-              borderRadius: borderRadius.md,
-              opacity: submitting || isProcessing ? 0.7 : 1,
-            },
-          ]}
-          onPress={handleSave}
-          disabled={submitting || isProcessing}
-          activeOpacity={0.8}
-          accessibilityRole="button"
-          accessibilityLabel="Save Note"
-        >
-          {submitting ? (
-            <View style={styles.buttonLoadingRow}>
-              <ActivityIndicator color={colors.primaryForeground} size="small" />
-              <Text
-                style={[
-                  styles.submitButtonText,
-                  typography.labelLarge,
-                  { color: colors.primaryForeground, marginLeft: 8 },
-                ]}
-              >
-                Saving Note...
-              </Text>
-            </View>
-          ) : (
-            <Text
-              style={[
-                styles.submitButtonText,
-                typography.labelLarge,
-                { color: colors.primaryForeground },
-              ]}
-            >
-              Save Note
-            </Text>
-          )}
-        </TouchableOpacity>
+        {/* Auto-growing Notes Input */}
+        <Input
+          label="Notes"
+          placeholder="Write your note..."
+          value={notes}
+          onChangeText={(text) => {
+            setNotes(text);
+            if (notesError) setNotesError(null);
+          }}
+          error={notesError}
+          multiline
+          maxLength={APP_CONFIG.MAX_NOTES_LENGTH}
+          showCounterNearLimit
+          editable={!submitting}
+        />
       </ScrollView>
-    </KeyboardAvoidingView>
+
+      {/* Sticky Save Button Above Keyboard */}
+      <View
+        style={[
+          styles.stickyFooter,
+          {
+            backgroundColor: colors.surface,
+            borderTopColor: colors.borderSubtle,
+            padding: spacing.md,
+          },
+        ]}
+      >
+        <Button
+          label={submitting ? 'Saving...' : 'Save Note'}
+          onPress={handleSave}
+          disabled={!isFormValid || submitting || isProcessing}
+          loading={submitting || isProcessing}
+        />
+      </View>
+
+      <ActionSheet
+        visible={showImageSheet}
+        title="Photo Attachment"
+        options={imageOptions}
+        onClose={() => setShowImageSheet(false)}
+      />
+
+      <ConfirmDialog
+        visible={showDiscardDialog}
+        title="Discard Changes"
+        message="You have unsaved changes. Are you sure you want to discard them?"
+        confirmLabel="Discard"
+        cancelLabel="Keep Editing"
+        isDestructive
+        onConfirm={() => {
+          setShowDiscardDialog(false);
+          router.back();
+        }}
+        onCancel={() => setShowDiscardDialog(false)}
+      />
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   scrollContent: {
-    paddingBottom: 40,
+    paddingBottom: 20,
   },
-  formGroup: {
-    marginBottom: 20,
-  },
-  labelRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 6,
-  },
-  label: {},
-  charCounter: {},
-  input: {
+  emptyImagePlaceholder: {
+    width: '100%',
+    aspectRatio: 4 / 3,
     borderWidth: 1,
-    minHeight: 48,
-  },
-  textArea: {
-    borderWidth: 1,
-    minHeight: 120,
-  },
-  inlineError: {
-    marginTop: 4,
-  },
-  categoryRow: {
-    paddingVertical: 4,
-  },
-  submitButton: {
-    minHeight: 50,
+    borderStyle: 'dashed',
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 10,
-    marginBottom: 30,
+    marginBottom: 20,
   },
-  buttonLoadingRow: {
+  imageHeaderWrapper: {
+    width: '100%',
+    aspectRatio: 4 / 3,
+    position: 'relative',
+    overflow: 'hidden',
+    marginBottom: 20,
+  },
+  attachedImage: {
+    width: '100%',
+    height: '100%',
+  },
+  imageActionRow: {
+    position: 'absolute',
+    bottom: 8,
+    right: 8,
     flexDirection: 'row',
-    alignItems: 'center',
+    gap: 6,
   },
-  submitButtonText: {
-    fontWeight: '700',
+  imagePillBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 9999,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  categorySection: {
+    marginBottom: 16,
+  },
+  categoryRow: {
+    paddingVertical: 2,
+  },
+  stickyFooter: {
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
 });

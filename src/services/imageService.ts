@@ -12,13 +12,10 @@ export interface PickImageResult {
 }
 
 export const imageService = {
-  /**
-   * Prompts the user to open device settings if permission was denied.
-   */
   showPermissionAlert(type: 'camera' | 'photo library'): void {
     Alert.alert(
       'Permission Required',
-      `Smart Capture & Notes needs access to your ${type} to attach pictures to your notes. Please enable it in Settings.`,
+      `Smart Capture needs access to your ${type} to attach pictures to your notes. Please enable it in Settings.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -35,10 +32,6 @@ export const imageService = {
     );
   },
 
-  /**
-   * Launches the camera to capture a new photo.
-   * Handles permissions and returns the local URI.
-   */
   async capturePhoto(): Promise<PickImageResult> {
     try {
       const permission = await ImagePicker.requestCameraPermissionsAsync();
@@ -51,11 +44,11 @@ export const imageService = {
 
       const result = await ImagePicker.launchCameraAsync({
         mediaTypes: ['images'],
-        quality: 1, // Full quality here; compression occurs in separate step
+        quality: 1,
         allowsEditing: false,
       });
 
-      if (result.canceled || !result.assets || result.assets.length === 0) {
+      if (result.canceled || !result.assets || result.assets.length === 0 || !result.assets[0].uri) {
         return { canceled: true };
       }
 
@@ -66,18 +59,14 @@ export const imageService = {
         width: asset.width,
         height: asset.height,
       };
-    } catch (err) {
+    } catch {
       return {
         canceled: true,
-        error: err instanceof Error ? err.message : 'Failed to launch camera',
+        error: 'Unable to open camera.',
       };
     }
   },
 
-  /**
-   * Opens the photo library picker.
-   * Handles permissions and returns the local URI.
-   */
   async pickImageFromGallery(): Promise<PickImageResult> {
     try {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -94,7 +83,7 @@ export const imageService = {
         allowsEditing: false,
       });
 
-      if (result.canceled || !result.assets || result.assets.length === 0) {
+      if (result.canceled || !result.assets || result.assets.length === 0 || !result.assets[0].uri) {
         return { canceled: true };
       }
 
@@ -105,19 +94,14 @@ export const imageService = {
         width: asset.width,
         height: asset.height,
       };
-    } catch (err) {
+    } catch {
       return {
         canceled: true,
-        error: err instanceof Error ? err.message : 'Failed to select image',
+        error: 'Unable to open photo library.',
       };
     }
   },
 
-  /**
-   * Compresses an image:
-   * 1. Resizes down to max width 1600px if wider (preserving aspect ratio)
-   * 2. Encodes to JPEG with 0.7 compression quality
-   */
   async compressImage(
     uri: string,
     width?: number
@@ -126,7 +110,6 @@ export const imageService = {
     if (width && width > APP_CONFIG.COMPRESSION_MAX_WIDTH) {
       actions.push({ resize: { width: APP_CONFIG.COMPRESSION_MAX_WIDTH } });
     } else if (!width) {
-      // If width wasn't provided, apply resize action to ensure bounded max width
       actions.push({ resize: { width: APP_CONFIG.COMPRESSION_MAX_WIDTH } });
     }
 

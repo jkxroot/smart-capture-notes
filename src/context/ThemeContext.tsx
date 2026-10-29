@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useMemo } from 'react';
+import { createContext, useContext, useMemo, ReactNode } from 'react';
 import { useColorScheme } from 'react-native';
 import { lightColors, darkColors, ThemeColors } from '../theme/colors';
 import { spacing, borderRadius, shadows } from '../theme/spacing';
@@ -15,7 +15,7 @@ interface ThemeContextValue {
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
-export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export const ThemeProvider = ({ children }: { children: ReactNode }) => {
   const systemColorScheme = useColorScheme();
   const isDark = systemColorScheme === 'dark';
 
@@ -36,7 +36,6 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 export const useTheme = (): ThemeContextValue => {
   const context = useContext(ThemeContext);
   if (!context) {
-    // Fallback to light theme if outside provider
     return {
       isDark: false,
       colors: lightColors,

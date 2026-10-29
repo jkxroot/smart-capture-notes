@@ -1,7 +1,7 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
+import { Button } from './Button';
 
 interface EmptyStateProps {
   icon?: keyof typeof Ionicons.glyphMap;
@@ -12,37 +12,35 @@ interface EmptyStateProps {
   isError?: boolean;
 }
 
-export const EmptyState: React.FC<EmptyStateProps> = ({
+export const EmptyState = ({
   icon,
   title,
   description,
   actionLabel,
   onAction,
   isError = false,
-}) => {
+}: EmptyStateProps) => {
   const { colors, typography, spacing, borderRadius } = useTheme();
 
   const defaultIcon: keyof typeof Ionicons.glyphMap = isError
     ? 'cloud-offline-outline'
     : 'document-text-outline';
 
-  const displayIcon = icon || defaultIcon;
-
   return (
     <View style={[styles.container, { padding: spacing.xxl }]}>
       <View
         style={[
-          styles.iconContainer,
+          styles.iconBox,
           {
-            backgroundColor: isError ? colors.errorBackground : colors.surfaceMuted,
+            backgroundColor: isError ? colors.dangerLight : colors.surfaceMuted,
             borderRadius: borderRadius.pill,
           },
         ]}
       >
         <Ionicons
-          name={displayIcon}
-          size={42}
-          color={isError ? colors.error : colors.textTertiary}
+          name={icon || defaultIcon}
+          size={36}
+          color={isError ? colors.danger : colors.textTertiary}
         />
       </View>
 
@@ -69,31 +67,12 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
       ) : null}
 
       {actionLabel && onAction ? (
-        <TouchableOpacity
+        <Button
+          label={actionLabel}
           onPress={onAction}
-          style={[
-            styles.actionBtn,
-            {
-              backgroundColor: isError ? colors.error : colors.primary,
-              borderRadius: borderRadius.md,
-              paddingHorizontal: spacing.lg,
-              paddingVertical: spacing.md,
-            },
-          ]}
-          activeOpacity={0.8}
-          accessibilityRole="button"
-          accessibilityLabel={actionLabel}
-        >
-          <Text
-            style={[
-              styles.actionBtnText,
-              typography.labelLarge,
-              { color: colors.primaryForeground },
-            ]}
-          >
-            {actionLabel}
-          </Text>
-        </TouchableOpacity>
+          variant={isError ? 'secondary' : 'primary'}
+          size="medium"
+        />
       ) : null}
     </View>
   );
@@ -103,11 +82,12 @@ const styles = StyleSheet.create({
   container: {
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 260,
+    minHeight: 240,
+    width: '100%',
   },
-  iconContainer: {
-    width: 76,
-    height: 76,
+  iconBox: {
+    width: 68,
+    height: 68,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 16,
@@ -117,12 +97,6 @@ const styles = StyleSheet.create({
   },
   description: {
     textAlign: 'center',
-    maxWidth: 320,
-  },
-  actionBtn: {
-    marginTop: 8,
-  },
-  actionBtnText: {
-    fontWeight: '600',
+    maxWidth: 300,
   },
 });

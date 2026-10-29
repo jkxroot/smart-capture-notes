@@ -1,129 +1,136 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import {
   View,
   Text,
   FlatList,
   TouchableOpacity,
   StyleSheet,
-  ActivityIndicator,
   ScrollView,
+  useWindowDimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useAuth } from '../../src/context/AuthContext';
+import * as Haptics from 'expo-haptics';
 import { useRecords } from '../../src/context/RecordsContext';
 import { useTheme } from '../../src/context/ThemeContext';
 import { useDebounce } from '../../src/hooks/useDebounce';
+import { Screen } from '../../src/components/Screen';
 import { RecordCard } from '../../src/components/RecordCard';
-import { CategoryChip } from '../../src/components/CategoryChip';
-import { SearchBar } from '../../src/components/SearchBar';
+import { Chip } from '../../src/components/Chip';
+import { Input } from '../../src/components/Input';
 import { EmptyState } from '../../src/components/EmptyState';
-import { ConfirmDialog } from '../../src/components/ConfirmDialog';
-import { Category, CATEGORIES } from '../../src/types/record';
+import { Skeleton } from '../../src/components/Skeleton';
+import { SortMenu } from '../../src/components/SortMenu';
+import { OfflineBanner } from '../../src/components/OfflineBanner';
+import { IconButton } from '../../src/components/IconButton';
+import { Category, CATEGORIES, SortOption } from '../../src/types/record';
 import { APP_CONFIG } from '../../src/utils/constants';
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { user, signOut } = useAuth();
-  const { colors, typography, spacing, borderRadius, shadows } = useTheme();
+  const { width } = useWindowDimensions();
+  const isWide = width >= 700;
+
+  const { colors, typography, spacing, borderRadius } = useTheme();
 
   const {
     records,
     loading,
     refreshing,
     loadingMore,
-    hasMore,
     error,
     selectedCategory,
+    sortBy,
     setSelectedCategory,
     setSearchQuery,
+    setSortBy,
     refreshRecords,
     loadMore,
+    togglePin,
   } = useRecords();
 
   const [searchInput, setSearchInput] = useState('');
   const debouncedSearch = useDebounce(searchInput, APP_CONFIG.SEARCH_DEBOUNCE_MS);
-  const [showSignOutDialog, setShowSignOutDialog] = useState(false);
-  const [signingOut, setSigningOut] = useState(false);
+  const [showSortMenu, setShowSortMenu] = useState(false);
 
-  // Sync debounced search with context
   useEffect(() => {
     setSearchQuery(debouncedSearch);
   }, [debouncedSearch, setSearchQuery]);
 
-  const handleSignOut = async () => {
-    setSigningOut(true);
-    await signOut();
-    setSigningOut(false);
-    setShowSignOutDialog(false);
-  };
-
   const allCategories: (Category | 'All')[] = ['All', ...CATEGORIES];
 
+  const handleSelectSort = (sort: SortOption) => {
+    setSortBy(sort);
+    setShowSortMenu(false);
+  };
+
+  const handleOpenAdd = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    router.push('/(app)/add');
+  };
+
+  const isFiltering = searchInput.trim().length > 0 || selectedCategory !== 'All';
+
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
-      {/* Top App Header */}
-      <View style={[styles.header, { backgroundColor: colors.surface, borderBottomColor: colors.borderSubtle }]}>
-        <View style={styles.headerLeft}>
-          <Text style={[styles.appTitle, typography.h2, { color: colors.textPrimary }]}>
-            Smart Notes
+    <Screen edges={['top', 'left', 'right']}>
+      <OfflineBanner />
+
+      {/* Top Header */}
+      <View style={[styles.header, { paddingHorizontal: spacing.lg, paddingTop: spacing.md }]}>
+        <View style={styles.headerTitleWrap}>
+          <Text style={[typography.h1, { color: colors.textPrimary }]}>
+            Notes
           </Text>
-          <Text
-            style={[styles.userEmail, typography.caption, { color: colors.textSecondary }]}
-            numberOfLines={1}
-          >
-            {user?.email || 'Logged In'}
+          <Text style={[typography.caption, { color: colors.textTertiary, marginTop: 2 }]}>
+            {records.length} {records.length === 1 ? 'note' : 'notes'}
           </Text>
         </View>
 
         <View style={styles.headerActions}>
-          {/* Dashboard Icon */}
-          <TouchableOpacity
+          <IconButton
+            name="swap-vertical-outline"
+            accessibilityLabel="Sort options"
+            onPress={() => setShowSortMenu(true)}
+          />
+          <IconButton
+            name="bar-chart-outline"
+            accessibilityLabel="View dashboard"
             onPress={() => router.push('/(app)/dashboard')}
-            style={[
-              styles.iconBtn,
-              { backgroundColor: colors.surfaceMuted, borderRadius: borderRadius.pill },
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel="Open category dashboard"
-          >
-            <Ionicons name="pie-chart-outline" size={20} color={colors.textPrimary} />
-          </TouchableOpacity>
-
-          {/* Profile / Sign Out Icon */}
-          <TouchableOpacity
-            onPress={() => setShowSignOutDialog(true)}
-            style={[
-              styles.iconBtn,
-              { backgroundColor: colors.surfaceMuted, borderRadius: borderRadius.pill },
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel="Sign out or profile options"
-          >
-            <Ionicons name="log-out-outline" size={20} color={colors.error} />
-          </TouchableOpacity>
+          />
+          <IconButton
+            name="settings-outline"
+            accessibilityLabel="Open settings"
+            onPress={() => router.push('/(app)/settings')}
+          />
         </View>
       </View>
 
-      {/* Search and Category Filter Section */}
-      <View style={[styles.filterContainer, { paddingHorizontal: spacing.md, paddingTop: spacing.md }]}>
-        <SearchBar
+      {/* Search Input */}
+      <View style={{ paddingHorizontal: spacing.lg, marginTop: spacing.sm }}>
+        <Input
+          placeholder="Search title or notes..."
           value={searchInput}
           onChangeText={setSearchInput}
-          placeholder="Search by title or notes..."
-          loading={loading && searchInput.length > 0}
+          showClear
+          onClear={() => setSearchInput('')}
+          returnKeyType="search"
+          autoCapitalize="none"
+          autoCorrect={false}
+          containerStyle={{ marginBottom: spacing.xs }}
         />
+      </View>
 
+      {/* Horizontally scrolling Category Chips */}
+      <View style={styles.chipBar}>
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={[styles.categoryScroll, { paddingVertical: spacing.md }]}
+          contentContainerStyle={[styles.categoryScroll, { paddingHorizontal: spacing.lg }]}
         >
           {allCategories.map((cat) => (
-            <CategoryChip
+            <Chip
               key={cat}
-              category={cat}
+              label={cat}
               selected={selectedCategory === cat}
               onPress={() => setSelectedCategory(cat)}
             />
@@ -131,19 +138,26 @@ export default function HomeScreen() {
         </ScrollView>
       </View>
 
-      {/* Main Records List */}
+      {/* Main Notes List */}
       <FlatList
+        key={isWide ? 'wide-2-cols' : 'single-col'}
         data={records}
         keyExtractor={(item) => item.id}
+        numColumns={isWide ? 2 : 1}
+        columnWrapperStyle={isWide ? styles.columnWrapper : undefined}
         renderItem={({ item }) => (
-          <RecordCard
-            record={item}
-            onPress={() => router.push(`/(app)/record/${item.id}`)}
-          />
+          <View style={isWide ? styles.gridItem : undefined}>
+            <RecordCard
+              record={item}
+              isWide={isWide}
+              onPress={() => router.push(`/(app)/record/${item.id}`)}
+              onTogglePin={() => togglePin(item.id)}
+            />
+          </View>
         )}
         contentContainerStyle={[
           styles.listContent,
-          { paddingHorizontal: spacing.md, paddingBottom: 100 },
+          { paddingHorizontal: spacing.lg, paddingBottom: 100 },
           records.length === 0 && styles.emptyListContent,
         ]}
         refreshing={refreshing}
@@ -152,136 +166,97 @@ export default function HomeScreen() {
         onEndReachedThreshold={0.3}
         ListEmptyComponent={
           loading ? (
-            <View style={styles.centerContainer}>
-              <ActivityIndicator size="large" color={colors.primary} />
-              <Text
-                style={[
-                  styles.loadingText,
-                  typography.bodyMedium,
-                  { color: colors.textSecondary, marginTop: spacing.md },
-                ]}
-              >
-                Loading notes...
-              </Text>
+            <View style={{ paddingVertical: spacing.md }}>
+              <Skeleton height={74} style={{ marginBottom: spacing.md }} />
+              <Skeleton height={74} style={{ marginBottom: spacing.md }} />
+              <Skeleton height={74} style={{ marginBottom: spacing.md }} />
+              <Skeleton height={74} />
             </View>
           ) : error ? (
             <EmptyState
-              title="Connection Problem"
+              title="Unable to Load Notes"
               description={error}
               actionLabel="Retry"
               onAction={refreshRecords}
               isError
             />
+          ) : isFiltering ? (
+            <EmptyState
+              icon="search-outline"
+              title="No Results"
+              description="No notes match your current search or category."
+              actionLabel="Reset Search"
+              onAction={() => {
+                setSearchInput('');
+                setSelectedCategory('All');
+              }}
+            />
           ) : (
             <EmptyState
-              title="No notes found"
-              description={
-                searchInput || selectedCategory !== 'All'
-                  ? 'No notes match your current search or category filter.'
-                  : 'Start capturing your thoughts, receipts, and ideas with photos.'
-              }
-              actionLabel={
-                searchInput || selectedCategory !== 'All'
-                  ? 'Reset Filters'
-                  : 'Capture Note'
-              }
-              onAction={
-                searchInput || selectedCategory !== 'All'
-                  ? () => {
-                      setSearchInput('');
-                      setSelectedCategory('All');
-                    }
-                  : () => router.push('/(app)/add')
-              }
+              icon="document-text-outline"
+              title="No Notes Yet"
+              description="Capture your first note or photo idea."
+              actionLabel="Create Note"
+              onAction={handleOpenAdd}
             />
           )
         }
         ListFooterComponent={
           loadingMore ? (
-            <View style={styles.footerLoader}>
-              <ActivityIndicator size="small" color={colors.primary} />
-              <Text
-                style={[
-                  styles.footerText,
-                  typography.caption,
-                  { color: colors.textTertiary, marginLeft: 8 },
-                ]}
-              >
-                Loading more...
-              </Text>
+            <View style={{ paddingVertical: spacing.md }}>
+              <Skeleton height={60} />
             </View>
           ) : undefined
         }
       />
 
-      {/* Floating Action Button (FAB) to Add Note */}
+      {/* Floating Add Note Action Button */}
       <TouchableOpacity
+        onPress={handleOpenAdd}
+        activeOpacity={0.8}
+        accessibilityRole="button"
+        accessibilityLabel="Create new note"
         style={[
           styles.fab,
-          shadows.lg,
           {
-            backgroundColor: colors.primary,
+            backgroundColor: colors.accent,
             borderRadius: borderRadius.pill,
           },
         ]}
-        onPress={() => router.push('/(app)/add')}
-        activeOpacity={0.85}
-        accessibilityRole="button"
-        accessibilityLabel="Create new note"
       >
-        <Ionicons name="add" size={30} color={colors.primaryForeground} />
+        <Ionicons name="add" size={26} color={colors.accentForeground} />
       </TouchableOpacity>
 
-      {/* Sign Out Confirmation Dialog */}
-      <ConfirmDialog
-        visible={showSignOutDialog}
-        title="Sign Out"
-        message={`Are you sure you want to sign out from ${user?.email || 'your account'}?`}
-        confirmLabel="Sign Out"
-        isDestructive
-        loading={signingOut}
-        onConfirm={handleSignOut}
-        onCancel={() => setShowSignOutDialog(false)}
+      {/* Sort Menu Modal */}
+      <SortMenu
+        visible={showSortMenu}
+        currentSort={sortBy}
+        onSelectSort={handleSelectSort}
+        onClose={() => setShowSortMenu(false)}
       />
-    </SafeAreaView>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
+    marginBottom: 8,
   },
-  headerLeft: {
+  headerTitleWrap: {
     flex: 1,
-  },
-  appTitle: {
-    letterSpacing: -0.5,
-  },
-  userEmail: {
-    marginTop: 2,
   },
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
   },
-  iconBtn: {
-    width: 38,
-    height: 38,
-    alignItems: 'center',
-    justifyContent: 'center',
+  chipBar: {
+    marginBottom: 8,
   },
-  filterContainer: {},
   categoryScroll: {
-    paddingRight: 16,
+    paddingVertical: 4,
   },
   listContent: {
     paddingTop: 8,
@@ -290,27 +265,25 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     justifyContent: 'center',
   },
-  centerContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 48,
+  columnWrapper: {
+    gap: 12,
   },
-  loadingText: {},
-  footerLoader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 16,
+  gridItem: {
+    flex: 1,
   },
-  footerText: {},
   fab: {
     position: 'absolute',
     bottom: 24,
     right: 20,
-    width: 58,
-    height: 58,
+    width: 52,
+    height: 52,
     alignItems: 'center',
     justifyContent: 'center',
+    elevation: 3,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
     zIndex: 90,
   },
 });

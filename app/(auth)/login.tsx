@@ -1,46 +1,37 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
-  KeyboardAvoidingView,
-  Platform,
   ScrollView,
-  ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
 import { useToast } from '../../src/context/ToastContext';
 import { validateEmail, validatePassword } from '../../src/utils/validation';
+import { Screen } from '../../src/components/Screen';
+import { Input } from '../../src/components/Input';
+import { Button } from '../../src/components/Button';
 
 export default function LoginScreen() {
   const router = useRouter();
   const { signIn } = useAuth();
-  const { colors, typography, spacing, borderRadius } = useTheme();
+  const { colors, typography, spacing } = useTheme();
   const { showToast } = useToast();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // Field validation errors
   const [emailError, setEmailError] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
-  const [formError, setFormError] = useState<string | null>(null);
 
   const handleLogin = async () => {
-    // Clear previous errors
     setEmailError(null);
     setPasswordError(null);
-    setFormError(null);
 
-    // Validate inputs
     const emailValidation = validateEmail(email);
     const passwordValidation = validatePassword(password);
 
@@ -60,302 +51,114 @@ export default function LoginScreen() {
     try {
       const res = await signIn(email, password);
       if (res.error) {
-        setFormError(res.error);
         showToast(res.error, 'error');
-      } else {
-        showToast('Welcome back!', 'success');
       }
     } catch {
-      setFormError('An unexpected error occurred. Please try again.');
+      showToast('Unable to sign in. Please try again.', 'error');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.keyboardView}
+    <Screen avoidKeyboard edges={['top', 'bottom', 'left', 'right']}>
+      <ScrollView
+        contentContainerStyle={[styles.content, { padding: spacing.xxl }]}
+        keyboardShouldPersistTaps="handled"
       >
-        <ScrollView
-          contentContainerStyle={[styles.scrollContent, { padding: spacing.xxl }]}
-          keyboardShouldPersistTaps="handled"
-        >
-          {/* Header Brand */}
-          <View style={styles.header}>
-            <View
-              style={[
-                styles.logoBadge,
-                { backgroundColor: colors.primaryMuted, borderRadius: borderRadius.pill },
-              ]}
-            >
-              <Ionicons name="camera-reverse" size={36} color={colors.primary} />
-            </View>
-            <Text style={[styles.title, typography.h1, { color: colors.textPrimary }]}>
-              Welcome Back
-            </Text>
-            <Text style={[styles.subtitle, typography.bodyMedium, { color: colors.textSecondary }]}>
-              Sign in to access your smart notes & captures
-            </Text>
-          </View>
+        <View style={styles.brandSection}>
+          <Text style={[styles.wordmark, typography.h1, { color: colors.textPrimary }]}>
+            Smart Capture
+          </Text>
+          <Text style={[styles.tagline, typography.bodyMedium, { color: colors.textSecondary }]}>
+            Calm, private notes with photo captures.
+          </Text>
+        </View>
 
-          {/* Form Error Banner */}
-          {formError ? (
-            <View
-              style={[
-                styles.errorBanner,
-                {
-                  backgroundColor: colors.errorBackground,
-                  borderColor: colors.error,
-                  borderRadius: borderRadius.md,
-                  padding: spacing.md,
-                },
-              ]}
-              accessibilityRole="alert"
-            >
-              <Ionicons name="alert-circle" size={20} color={colors.error} style={styles.errorIcon} />
-              <Text style={[styles.errorBannerText, typography.bodyMedium, { color: colors.error }]}>
-                {formError}
-              </Text>
-            </View>
-          ) : null}
+        <View style={styles.form}>
+          <Input
+            label="Email"
+            placeholder="name@example.com"
+            value={email}
+            onChangeText={(text) => {
+              setEmail(text);
+              if (emailError) setEmailError(null);
+            }}
+            error={emailError}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoCorrect={false}
+            editable={!loading}
+          />
 
-          {/* Email Field */}
-          <View style={styles.fieldContainer}>
-            <Text style={[styles.label, typography.labelMedium, { color: colors.textPrimary }]}>
-              Email Address
-            </Text>
-            <View
-              style={[
-                styles.inputWrapper,
-                {
-                  backgroundColor: colors.surface,
-                  borderColor: emailError ? colors.error : colors.border,
-                  borderRadius: borderRadius.md,
-                },
-              ]}
-            >
-              <Ionicons
-                name="mail-outline"
-                size={20}
-                color={colors.textTertiary}
-                style={styles.inputIcon}
-              />
-              <TextInput
-                style={[styles.input, typography.bodyLarge, { color: colors.textPrimary }]}
-                placeholder="you@example.com"
-                placeholderTextColor={colors.textTertiary}
-                value={email}
-                onChangeText={(text) => {
-                  setEmail(text);
-                  if (emailError) setEmailError(null);
-                }}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-                autoComplete="email"
-                editable={!loading}
-                accessibilityLabel="Email Address"
-              />
-            </View>
-            {emailError ? (
-              <Text style={[styles.inlineError, typography.bodySmall, { color: colors.error }]}>
-                {emailError}
-              </Text>
-            ) : null}
-          </View>
+          <Input
+            label="Password"
+            placeholder="Account password"
+            value={password}
+            onChangeText={(text) => {
+              setPassword(text);
+              if (passwordError) setPasswordError(null);
+            }}
+            error={passwordError}
+            isPassword
+            editable={!loading}
+          />
 
-          {/* Password Field */}
-          <View style={styles.fieldContainer}>
-            <Text style={[styles.label, typography.labelMedium, { color: colors.textPrimary }]}>
-              Password
-            </Text>
-            <View
-              style={[
-                styles.inputWrapper,
-                {
-                  backgroundColor: colors.surface,
-                  borderColor: passwordError ? colors.error : colors.border,
-                  borderRadius: borderRadius.md,
-                },
-              ]}
-            >
-              <Ionicons
-                name="lock-closed-outline"
-                size={20}
-                color={colors.textTertiary}
-                style={styles.inputIcon}
-              />
-              <TextInput
-                style={[styles.input, typography.bodyLarge, { color: colors.textPrimary }]}
-                placeholder="••••••••"
-                placeholderTextColor={colors.textTertiary}
-                value={password}
-                onChangeText={(text) => {
-                  setPassword(text);
-                  if (passwordError) setPasswordError(null);
-                }}
-                secureTextEntry={!showPassword}
-                autoCapitalize="none"
-                autoCorrect={false}
-                editable={!loading}
-                accessibilityLabel="Password"
-              />
-              <TouchableOpacity
-                onPress={() => setShowPassword(!showPassword)}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
-                accessibilityRole="button"
-                style={styles.eyeBtn}
-              >
-                <Ionicons
-                  name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                  size={20}
-                  color={colors.textTertiary}
-                />
-              </TouchableOpacity>
-            </View>
-            {passwordError ? (
-              <Text style={[styles.inlineError, typography.bodySmall, { color: colors.error }]}>
-                {passwordError}
-              </Text>
-            ) : null}
-          </View>
-
-          {/* Submit Button */}
-          <TouchableOpacity
-            style={[
-              styles.submitBtn,
-              {
-                backgroundColor: colors.primary,
-                borderRadius: borderRadius.md,
-                opacity: loading ? 0.7 : 1,
-              },
-            ]}
+          <Button
+            label="Sign In"
             onPress={handleLogin}
-            disabled={loading}
-            activeOpacity={0.8}
-            accessibilityLabel="Sign in button"
-            accessibilityRole="button"
-          >
-            {loading ? (
-              <ActivityIndicator color={colors.primaryForeground} size="small" />
-            ) : (
-              <Text style={[styles.submitBtnText, typography.labelLarge, { color: colors.primaryForeground }]}>
-                Sign In
-              </Text>
-            )}
-          </TouchableOpacity>
+            loading={loading}
+            style={styles.submitBtn}
+          />
 
-          {/* Toggle to Signup */}
-          <View style={styles.footer}>
-            <Text style={[styles.footerText, typography.bodyMedium, { color: colors.textSecondary }]}>
+          <View style={styles.footerRow}>
+            <Text style={[typography.bodyMedium, { color: colors.textSecondary }]}>
               Don't have an account?{' '}
             </Text>
             <TouchableOpacity
               onPress={() => router.push('/(auth)/signup')}
               disabled={loading}
               accessibilityRole="button"
-              accessibilityLabel="Navigate to sign up"
+              accessibilityLabel="Switch to create account"
             >
-              <Text style={[styles.footerLink, typography.labelLarge, { color: colors.primary }]}>
+              <Text style={[typography.labelLarge, { color: colors.accent }]}>
                 Sign Up
               </Text>
             </TouchableOpacity>
           </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+        </View>
+      </ScrollView>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-  },
-  keyboardView: {
-    flex: 1,
-  },
-  scrollContent: {
+  content: {
     flexGrow: 1,
     justifyContent: 'center',
-    maxWidth: 480,
+    maxWidth: 440,
     width: '100%',
     alignSelf: 'center',
   },
-  header: {
-    alignItems: 'center',
-    marginBottom: 32,
+  brandSection: {
+    marginBottom: 36,
   },
-  logoBadge: {
-    width: 68,
-    height: 68,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
+  wordmark: {
+    marginBottom: 6,
   },
-  title: {
-    textAlign: 'center',
-    marginBottom: 8,
+  tagline: {
+    lineHeight: 22,
   },
-  subtitle: {
-    textAlign: 'center',
-  },
-  errorBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    marginBottom: 20,
-  },
-  errorIcon: {
-    marginRight: 8,
-  },
-  errorBannerText: {
-    flex: 1,
-  },
-  fieldContainer: {
-    marginBottom: 18,
-  },
-  label: {
-    marginBottom: 8,
-  },
-  inputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    minHeight: 48,
-  },
-  inputIcon: {
-    marginRight: 10,
-  },
-  input: {
-    flex: 1,
-    paddingVertical: 10,
-  },
-  eyeBtn: {
-    padding: 6,
-  },
-  inlineError: {
-    marginTop: 6,
-    marginLeft: 4,
+  form: {
+    width: '100%',
   },
   submitBtn: {
-    minHeight: 48,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 12,
-    marginBottom: 24,
+    marginTop: 8,
+    marginBottom: 20,
   },
-  submitBtnText: {
-    fontWeight: '700',
-  },
-  footer: {
+  footerRow: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  footerText: {},
-  footerLink: {},
 });

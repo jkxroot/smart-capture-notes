@@ -1,4 +1,3 @@
-import React from 'react';
 import { Stack } from 'expo-router';
 import { RecordsProvider } from '../../src/context/RecordsContext';
 import { useTheme } from '../../src/context/ThemeContext';
@@ -10,51 +9,19 @@ export default function AppLayout() {
     <RecordsProvider>
       <Stack
         screenOptions={{
-          headerStyle: {
-            backgroundColor: colors.surface,
-          },
-          headerTintColor: colors.textPrimary,
-          headerTitleStyle: {
-            fontWeight: '700',
-          },
+          headerShown: false,
           contentStyle: {
             backgroundColor: colors.background,
           },
-          headerShadowVisible: false,
+          animation: 'fade',
         }}
       >
-        <Stack.Screen
-          name="index"
-          options={{
-            title: 'Smart Capture & Notes',
-            headerShown: false, // Custom header for home with search & profile
-          }}
-        />
-        <Stack.Screen
-          name="add"
-          options={{
-            title: 'New Note',
-            presentation: 'modal',
-          }}
-        />
-        <Stack.Screen
-          name="record/[id]"
-          options={{
-            title: 'Note Details',
-          }}
-        />
-        <Stack.Screen
-          name="edit/[id]"
-          options={{
-            title: 'Edit Note',
-          }}
-        />
-        <Stack.Screen
-          name="dashboard"
-          options={{
-            title: 'Category Dashboard',
-          }}
-        />
+        <Stack.Screen name="index" />
+        <Stack.Screen name="add" />
+        <Stack.Screen name="record/[id]" />
+        <Stack.Screen name="edit/[id]" />
+        <Stack.Screen name="dashboard" />
+        <Stack.Screen name="settings" />
       </Stack>
     </RecordsProvider>
   );

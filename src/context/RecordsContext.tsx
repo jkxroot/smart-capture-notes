@@ -11,6 +11,7 @@ import {
   CreateRecordInput,
   UpdateRecordInput,
   Category,
+  SortOption,
 } from '../types/record';
 import { recordService } from '../services/recordService';
 import { storageService } from '../services/storageService';
@@ -18,6 +19,7 @@ import { useAuth } from './AuthContext';
 import { useToast } from './ToastContext';
 import { generateUUID } from '../utils/uuid';
 import { APP_CONFIG } from '../utils/constants';
+import { isAuthSessionError, isAbortError } from '../utils/errors';
 
 interface RecordsContextValue {
   records: RecordItem[];
@@ -28,8 +30,10 @@ interface RecordsContextValue {
   error: string | null;
   searchQuery: string;
   selectedCategory: Category | 'All';
+  sortBy: SortOption;
   setSearchQuery: (query: string) => void;
   setSelectedCategory: (category: Category | 'All') => void;
+  setSortBy: (sort: SortOption) => void;
   refreshRecords: () => Promise<void>;
   loadMore: () => Promise<void>;
   createRecord: (
@@ -42,14 +46,16 @@ interface RecordsContextValue {
     localImageUri?: string | null,
     removeExistingImage?: boolean
   ) => Promise<{ success: boolean; error?: string; record?: RecordItem }>;
+  togglePin: (id: string) => Promise<{ success: boolean; error?: string }>;
   deleteRecord: (id: string) => Promise<{ success: boolean; error?: string }>;
   getRecordById: (id: string) => Promise<RecordItem | null>;
+  clearRecords: () => void;
 }
 
 const RecordsContext = createContext<RecordsContextValue | null>(null);
 
 export const RecordsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user } = useAuth();
+  const { user, isSigningOut, handleSessionExpired } = useAuth();
   const { showToast } = useToast();
 
   const [records, setRecords] = useState<RecordItem[]>([]);
@@ -61,18 +67,44 @@ export const RecordsProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedCategory, setSelectedCategory] = useState<Category | 'All'>('All');
+  const [sortBy, setSortBy] = useState<SortOption>('newest');
 
-  // Keep track of current offset
   const offsetRef = useRef<number>(0);
+  const activeRequestIdRef = useRef<number>(0);
 
-  // Fetch initial or refreshed records
+  const clearRecords = useCallback(() => {
+    activeRequestIdRef.current += 1;
+    setRecords([]);
+    setError(null);
+    setLoading(false);
+    setRefreshing(false);
+    setLoadingMore(false);
+    setHasMore(false);
+    offsetRef.current = 0;
+  }, []);
+
+  const handlePossibleAuthError = useCallback(
+    (err: string | null) => {
+      if (!err || isSigningOut) return false;
+      if (isAuthSessionError(err)) {
+        clearRecords();
+        handleSessionExpired();
+        showToast('Session expired, please sign in again', 'info');
+        return true;
+      }
+      return false;
+    },
+    [isSigningOut, clearRecords, handleSessionExpired, showToast]
+  );
+
   const fetchRecords = useCallback(
     async (isRefresh: boolean = false) => {
-      if (!user) {
-        setRecords([]);
-        setLoading(false);
+      if (!user || isSigningOut) {
+        clearRecords();
         return;
       }
+
+      const requestId = ++activeRequestIdRef.current;
 
       if (isRefresh) {
         setRefreshing(true);
@@ -85,13 +117,21 @@ export const RecordsProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const { data, count, error: fetchErr } = await recordService.getRecords({
         category: selectedCategory,
         searchQuery,
+        sortBy,
         limit: APP_CONFIG.PAGE_SIZE,
         offset: 0,
       });
 
+      // Discard if request was superseded or user logged out
+      if (requestId !== activeRequestIdRef.current || !user || isSigningOut) {
+        return;
+      }
+
       if (fetchErr) {
-        setError(fetchErr);
-        showToast(fetchErr, 'error');
+        if (!handlePossibleAuthError(fetchErr) && !isAbortError(fetchErr)) {
+          setError(fetchErr);
+          showToast(fetchErr, 'error');
+        }
       } else {
         setRecords(data);
         offsetRef.current = data.length;
@@ -101,32 +141,43 @@ export const RecordsProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setLoading(false);
       setRefreshing(false);
     },
-    [user, selectedCategory, searchQuery, showToast]
+    [user, isSigningOut, selectedCategory, searchQuery, sortBy, clearRecords, handlePossibleAuthError, showToast]
   );
 
-  // Re-fetch when user, category, or search changes
   useEffect(() => {
     fetchRecords();
   }, [fetchRecords]);
 
-  // Load next page of records
   const loadMore = useCallback(async () => {
-    if (loadingMore || !hasMore || loading || refreshing || !user) return;
+    if (loadingMore || !hasMore || loading || refreshing || !user || isSigningOut) return;
 
+    const requestId = activeRequestIdRef.current;
     setLoadingMore(true);
     const currentOffset = offsetRef.current;
 
     const { data, count, error: fetchErr } = await recordService.getRecords({
       category: selectedCategory,
       searchQuery,
+      sortBy,
       limit: APP_CONFIG.PAGE_SIZE,
       offset: currentOffset,
     });
 
+    if (requestId !== activeRequestIdRef.current || !user || isSigningOut) {
+      setLoadingMore(false);
+      return;
+    }
+
     if (fetchErr) {
-      showToast(fetchErr, 'error');
+      if (!handlePossibleAuthError(fetchErr) && !isAbortError(fetchErr)) {
+        showToast(fetchErr, 'error');
+      }
     } else {
-      setRecords((prev) => [...prev, ...data]);
+      setRecords((prev) => {
+        const existingIds = new Set(prev.map((r) => r.id));
+        const uniqueIncoming = data.filter((item) => !existingIds.has(item.id));
+        return [...prev, ...uniqueIncoming];
+      });
       offsetRef.current = currentOffset + data.length;
       setHasMore(
         count !== null
@@ -136,26 +187,36 @@ export const RecordsProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     setLoadingMore(false);
-  }, [loadingMore, hasMore, loading, refreshing, user, selectedCategory, searchQuery, showToast]);
+  }, [
+    loadingMore,
+    hasMore,
+    loading,
+    refreshing,
+    user,
+    isSigningOut,
+    selectedCategory,
+    searchQuery,
+    sortBy,
+    handlePossibleAuthError,
+    showToast,
+  ]);
 
   const refreshRecords = useCallback(async () => {
     await fetchRecords(true);
   }, [fetchRecords]);
 
-  // Create record with robust rollback
   const createRecord = useCallback(
     async (
       input: CreateRecordInput,
       localImageUri?: string | null
     ): Promise<{ success: boolean; error?: string; record?: RecordItem }> => {
       if (!user) {
-        return { success: false, error: 'User is not authenticated.' };
+        return { success: false, error: 'Please sign in to save notes.' };
       }
 
       const recordId = generateUUID();
       let uploadedStoragePath: string | null = null;
 
-      // 1. If an image was selected, upload it first to {user_id}/{record_id}.jpg
       if (localImageUri) {
         const uploadResult = await storageService.uploadRecordImage(
           localImageUri,
@@ -164,6 +225,7 @@ export const RecordsProvider: React.FC<{ children: React.ReactNode }> = ({ child
         );
 
         if (uploadResult.error || !uploadResult.path) {
+          handlePossibleAuthError(uploadResult.error);
           return {
             success: false,
             error: uploadResult.error || 'Failed to upload photo.',
@@ -173,7 +235,6 @@ export const RecordsProvider: React.FC<{ children: React.ReactNode }> = ({ child
         uploadedStoragePath = uploadResult.path;
       }
 
-      // 2. Insert into database
       const dbResult = await recordService.createRecord(
         {
           ...input,
@@ -182,26 +243,23 @@ export const RecordsProvider: React.FC<{ children: React.ReactNode }> = ({ child
         recordId
       );
 
-      // 3. Rollback if DB insert fails
       if (dbResult.error || !dbResult.data) {
         if (uploadedStoragePath) {
-          // Delete uploaded storage object so no orphaned file remains
           await storageService.deleteImage(uploadedStoragePath);
         }
+        handlePossibleAuthError(dbResult.error);
         return {
           success: false,
-          error: dbResult.error || 'Failed to save record.',
+          error: dbResult.error || 'Failed to save note.',
         };
       }
 
-      // 4. Update local state
       setRecords((prev) => [dbResult.data!, ...prev]);
       return { success: true, record: dbResult.data };
     },
-    [user]
+    [user, handlePossibleAuthError]
   );
 
-  // Update record with image replacement/removal handling
   const updateRecord = useCallback(
     async (
       id: string,
@@ -210,14 +268,13 @@ export const RecordsProvider: React.FC<{ children: React.ReactNode }> = ({ child
       removeExistingImage: boolean = false
     ): Promise<{ success: boolean; error?: string; record?: RecordItem }> => {
       if (!user) {
-        return { success: false, error: 'User is not authenticated.' };
+        return { success: false, error: 'Please sign in to update notes.' };
       }
 
       const existingRecord = records.find((r) => r.id === id);
       const oldImagePath = existingRecord?.image_path;
       let newImagePath: string | null | undefined = undefined;
 
-      // Case A: User uploaded a new replacement image
       if (localImageUri) {
         const uploadResult = await storageService.uploadRecordImage(
           localImageUri,
@@ -225,6 +282,7 @@ export const RecordsProvider: React.FC<{ children: React.ReactNode }> = ({ child
           id
         );
         if (uploadResult.error || !uploadResult.path) {
+          handlePossibleAuthError(uploadResult.error);
           return {
             success: false,
             error: uploadResult.error || 'Failed to upload new photo.',
@@ -232,11 +290,9 @@ export const RecordsProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
         newImagePath = uploadResult.path;
       } else if (removeExistingImage) {
-        // Case B: User explicitly removed image
         newImagePath = null;
       }
 
-      // 2. Perform DB update
       const updateData: UpdateRecordInput = {
         ...input,
         ...(newImagePath !== undefined ? { image_path: newImagePath } : {}),
@@ -245,13 +301,13 @@ export const RecordsProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const dbResult = await recordService.updateRecord(id, updateData);
 
       if (dbResult.error || !dbResult.data) {
+        handlePossibleAuthError(dbResult.error);
         return {
           success: false,
-          error: dbResult.error || 'Failed to update record.',
+          error: dbResult.error || 'Failed to update note.',
         };
       }
 
-      // 3. Clean up old image if it was replaced or removed
       if (
         (removeExistingImage || (localImageUri && newImagePath !== oldImagePath)) &&
         oldImagePath
@@ -259,38 +315,66 @@ export const RecordsProvider: React.FC<{ children: React.ReactNode }> = ({ child
         await storageService.deleteImage(oldImagePath);
       }
 
-      // 4. Update local state
       setRecords((prev) =>
         prev.map((item) => (item.id === id ? dbResult.data! : item))
       );
 
       return { success: true, record: dbResult.data };
     },
-    [user, records]
+    [user, records, handlePossibleAuthError]
   );
 
-  // Delete record and storage object
+  const togglePin = useCallback(
+    async (id: string): Promise<{ success: boolean; error?: string }> => {
+      const target = records.find((r) => r.id === id);
+      if (!target) return { success: false, error: 'Record not found' };
+
+      const nextPinned = !target.is_pinned;
+
+      // Optimistic update
+      setRecords((prev) =>
+        prev
+          .map((item) => (item.id === id ? { ...item, is_pinned: nextPinned } : item))
+          .sort((a, b) => {
+            if (a.is_pinned !== b.is_pinned) return a.is_pinned ? -1 : 1;
+            return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+          })
+      );
+
+      const result = await recordService.updateRecord(id, { is_pinned: nextPinned });
+      if (result.error) {
+        // Rollback
+        setRecords((prev) =>
+          prev.map((item) => (item.id === id ? { ...item, is_pinned: !nextPinned } : item))
+        );
+        handlePossibleAuthError(result.error);
+        return { success: false, error: result.error };
+      }
+
+      return { success: true };
+    },
+    [records, handlePossibleAuthError]
+  );
+
   const deleteRecord = useCallback(
     async (id: string): Promise<{ success: boolean; error?: string }> => {
       const existing = records.find((r) => r.id === id);
       const imagePath = existing?.image_path;
 
-      // 1. Delete from DB
       const result = await recordService.deleteRecord(id);
       if (result.error) {
+        handlePossibleAuthError(result.error);
         return { success: false, error: result.error };
       }
 
-      // 2. Delete storage object if present
       if (imagePath) {
         await storageService.deleteImage(imagePath);
       }
 
-      // 3. Update local state
       setRecords((prev) => prev.filter((r) => r.id !== id));
       return { success: true };
     },
-    [records]
+    [records, handlePossibleAuthError]
   );
 
   const getRecordById = useCallback(
@@ -298,10 +382,13 @@ export const RecordsProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const found = records.find((r) => r.id === id);
       if (found) return found;
 
-      const { data } = await recordService.getRecordById(id);
+      const { data, error: err } = await recordService.getRecordById(id);
+      if (err) {
+        handlePossibleAuthError(err);
+      }
       return data;
     },
-    [records]
+    [records, handlePossibleAuthError]
   );
 
   return (
@@ -315,14 +402,18 @@ export const RecordsProvider: React.FC<{ children: React.ReactNode }> = ({ child
         error,
         searchQuery,
         selectedCategory,
+        sortBy,
         setSearchQuery,
         setSelectedCategory,
+        setSortBy,
         refreshRecords,
         loadMore,
         createRecord,
         updateRecord,
+        togglePin,
         deleteRecord,
         getRecordById,
+        clearRecords,
       }}
     >
       {children}

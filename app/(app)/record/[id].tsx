@@ -1,85 +1,71 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
-  Image,
   ScrollView,
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { useRecords } from '../../../src/context/RecordsContext';
 import { useTheme } from '../../../src/context/ThemeContext';
 import { useToast } from '../../../src/context/ToastContext';
 import { storageService } from '../../../src/services/storageService';
 import { shareService } from '../../../src/services/shareService';
+import { Screen } from '../../../src/components/Screen';
+import { IconButton } from '../../../src/components/IconButton';
 import { ConfirmDialog } from '../../../src/components/ConfirmDialog';
+import { ActionSheet } from '../../../src/components/ActionSheet';
+import { ImageViewer } from '../../../src/components/ImageViewer';
+import { ShareCard } from '../../../src/components/ShareCard';
 import { formatFullDateTime } from '../../../src/utils/formatDate';
 import { RecordItem } from '../../../src/types/record';
-import { CATEGORY_ICONS } from '../../../src/utils/constants';
 
 export default function RecordDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { getRecordById, deleteRecord } = useRecords();
-  const { colors, typography, spacing, borderRadius, shadows } = useTheme();
+  const { getRecordById, deleteRecord, togglePin } = useRecords();
+  const { colors, typography, spacing, borderRadius } = useTheme();
   const { showToast } = useToast();
 
   const [record, setRecord] = useState<RecordItem | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [loading, setLoading] = useState(true);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
-  const [imageLoading, setImageLoading] = useState<boolean>(false);
-  const [imageError, setImageError] = useState<boolean>(false);
+  const [imageError, setImageError] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState(false);
 
-  const [showDeleteDialog, setShowDeleteDialog] = useState<boolean>(false);
-  const [deleting, setDeleting] = useState<boolean>(false);
-  const [sharing, setSharing] = useState<boolean>(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [showShareSheet, setShowShareSheet] = useState(false);
+  const [preparingShare, setPreparingShare] = useState(false);
+  const [showImageViewer, setShowImageViewer] = useState(false);
+
+  const shareCardRef = useRef<React.ElementRef<typeof View>>(null);
+
+  const loadRecord = useCallback(async () => {
+    if (!id) return;
+    setLoading(true);
+    const item = await getRecordById(id);
+    setRecord(item);
+    setLoading(false);
+
+    if (item?.image_path) {
+      const { url, error } = await storageService.getSignedUrl(item.image_path);
+      if (error || !url) {
+        setImageError(true);
+      } else {
+        setImageUrl(url);
+      }
+    }
+  }, [id, getRecordById]);
 
   useEffect(() => {
-    let isMounted = true;
-    if (!id) return;
-
-    setLoading(true);
-    getRecordById(id)
-      .then((item) => {
-        if (isMounted) {
-          setRecord(item);
-          setLoading(false);
-          if (item?.image_path) {
-            setImageLoading(true);
-            storageService
-              .getSignedUrl(item.image_path)
-              .then(({ url, error }) => {
-                if (isMounted) {
-                  if (error || !url) {
-                    setImageError(true);
-                  } else {
-                    setImageUrl(url);
-                  }
-                  setImageLoading(false);
-                }
-              })
-              .catch(() => {
-                if (isMounted) {
-                  setImageError(true);
-                  setImageLoading(false);
-                }
-              });
-          }
-        }
-      })
-      .catch(() => {
-        if (isMounted) {
-          setLoading(false);
-        }
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, [id, getRecordById]);
+    loadRecord();
+  }, [loadRecord]);
 
   const handleDelete = async () => {
     if (!id) return;
@@ -89,143 +75,174 @@ export default function RecordDetailScreen() {
     setShowDeleteDialog(false);
 
     if (result.success) {
-      showToast('Record deleted successfully.', 'success');
+      showToast('Note deleted.', 'info');
       router.back();
     } else {
-      showToast(result.error || 'Failed to delete record.', 'error');
+      showToast(result.error || 'Failed to delete note.', 'error');
     }
   };
 
-  const handleShare = async () => {
+  const handleShareImageCard = async () => {
+    if (!record || preparingShare) return;
+    setPreparingShare(true);
+    showToast('Preparing share card...', 'info');
+
+    try {
+      // If note has an image and it hasn't loaded yet, give a brief moment to load
+      if (record.image_path && imageUrl && !imageLoaded && !imageError) {
+        await new Promise((resolve) => setTimeout(resolve, 600));
+      }
+
+      const result = await shareService.shareImageCard(shareCardRef, record.title);
+      if (!result.success && result.error) {
+        showToast(result.error, 'error');
+      }
+    } finally {
+      setPreparingShare(false);
+    }
+  };
+
+  const handleShareText = async () => {
+    if (!record || preparingShare) return;
+    setPreparingShare(true);
+    try {
+      const result = await shareService.shareText(record);
+      if (!result.success && result.error) {
+        showToast(result.error, 'error');
+      }
+    } finally {
+      setPreparingShare(false);
+    }
+  };
+
+  const handleTogglePin = async () => {
     if (!record) return;
-    setSharing(true);
-    const result = await shareService.shareRecord(record);
-    setSharing(false);
-    if (!result.success && result.error) {
-      showToast(result.error, 'error');
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    const result = await togglePin(record.id);
+    if (result.success) {
+      setRecord((prev) => (prev ? { ...prev, is_pinned: !prev.is_pinned } : null));
     }
   };
 
   if (loading) {
     return (
-      <View style={[styles.centerContainer, { backgroundColor: colors.background }]}>
-        <ActivityIndicator size="large" color={colors.primary} />
-      </View>
+      <Screen edges={['top', 'left', 'right']}>
+        <View style={styles.centerContainer}>
+          <ActivityIndicator size="small" color={colors.accent} />
+        </View>
+      </Screen>
     );
   }
 
   if (!record) {
     return (
-      <View style={[styles.centerContainer, { backgroundColor: colors.background, padding: spacing.xl }]}>
-        <Ionicons name="alert-circle-outline" size={48} color={colors.error} />
-        <Text style={[styles.notFoundText, typography.h3, { color: colors.textPrimary, marginTop: 12 }]}>
-          Record Not Found
-        </Text>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          style={[styles.backBtn, { backgroundColor: colors.primary, borderRadius: borderRadius.md, marginTop: 16 }]}
-        >
-          <Text style={[typography.labelLarge, { color: colors.primaryForeground }]}>Go Back</Text>
-        </TouchableOpacity>
-      </View>
+      <Screen edges={['top', 'left', 'right']}>
+        <View style={[styles.centerContainer, { padding: spacing.xxl }]}>
+          <Ionicons name="document-text-outline" size={40} color={colors.textTertiary} />
+          <Text style={[typography.h3, { color: colors.textPrimary, marginTop: 12 }]}>
+            Record Not Found
+          </Text>
+          <Text style={[typography.bodyMedium, { color: colors.textSecondary, marginTop: 6, textAlign: 'center' }]}>
+            This note may have been deleted or does not exist.
+          </Text>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={[styles.backBtn, { backgroundColor: colors.surfaceMuted, borderRadius: borderRadius.md, marginTop: 16 }]}
+          >
+            <Text style={[typography.labelMedium, { color: colors.textPrimary }]}>Go Back</Text>
+          </TouchableOpacity>
+        </View>
+      </Screen>
     );
   }
 
-  const categoryColor =
-    colors.categoryColors[record.category] || colors.primary;
-  const categoryIcon = CATEGORY_ICONS[record.category] || 'folder-outline';
-
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <ScrollView contentContainerStyle={[styles.content, { padding: spacing.lg }]}>
-        {/* Attached Photo */}
+    <Screen edges={['top', 'left', 'right']}>
+      {/* Top Header Navigation */}
+      <View style={[styles.topBar, { borderBottomColor: colors.borderSubtle, paddingHorizontal: spacing.md }]}>
+        <IconButton
+          name="chevron-back"
+          accessibilityLabel="Go back"
+          onPress={() => router.back()}
+        />
+
+        <View style={styles.headerRightActions}>
+          <IconButton
+            name={record.is_pinned ? 'pin' : 'pin-outline'}
+            color={record.is_pinned ? colors.accent : colors.textPrimary}
+            accessibilityLabel={record.is_pinned ? 'Unpin note' : 'Pin note'}
+            onPress={handleTogglePin}
+          />
+          <IconButton
+            name="share-outline"
+            accessibilityLabel="Share note"
+            onPress={() => setShowShareSheet(true)}
+            disabled={preparingShare}
+          />
+          <IconButton
+            name="create-outline"
+            accessibilityLabel="Edit note"
+            onPress={() => router.push(`/(app)/edit/${record.id}`)}
+          />
+          <IconButton
+            name="trash-outline"
+            color={colors.danger}
+            accessibilityLabel="Delete note"
+            onPress={() => setShowDeleteDialog(true)}
+          />
+        </View>
+      </View>
+
+      <ScrollView contentContainerStyle={styles.content}>
+        {/* Hero Image (Full width, 4:3 ratio, rounded bottom corners) */}
         {record.image_path ? (
-          <View
+          <TouchableOpacity
+            onPress={() => {
+              if (imageUrl) setShowImageViewer(true);
+            }}
+            activeOpacity={0.9}
             style={[
-              styles.imageContainer,
-              shadows.sm,
+              styles.heroImageContainer,
               {
                 backgroundColor: colors.surfaceMuted,
-                borderRadius: borderRadius.lg,
-                borderColor: colors.cardBorder,
               },
             ]}
+            accessibilityRole="button"
+            accessibilityLabel="Tap to view full screen photo"
           >
-            {imageLoading ? (
-              <View style={styles.imagePlaceholder}>
-                <ActivityIndicator size="large" color={colors.primary} />
-                <Text
-                  style={[
-                    styles.imagePlaceholderText,
-                    typography.caption,
-                    { color: colors.textTertiary, marginTop: 8 },
-                  ]}
-                >
-                  Loading photo securely...
-                </Text>
-              </View>
-            ) : imageError || !imageUrl ? (
-              <View style={styles.imagePlaceholder}>
-                <Ionicons name="image-outline" size={48} color={colors.textTertiary} />
-                <Text
-                  style={[
-                    styles.imagePlaceholderText,
-                    typography.caption,
-                    { color: colors.textTertiary, marginTop: 8 },
-                  ]}
-                >
+            {imageError || !imageUrl ? (
+              <View style={styles.imageFallback}>
+                <Ionicons name="image-outline" size={36} color={colors.textSecondary} />
+                <Text style={[typography.caption, { color: colors.textTertiary, marginTop: 6 }]}>
                   Photo unavailable
                 </Text>
               </View>
             ) : (
               <Image
                 source={{ uri: imageUrl }}
-                style={[styles.fullImage, { borderRadius: borderRadius.lg }]}
-                resizeMode="cover"
-                onError={() => setImageError(true)}
-                accessibilityLabel="Full record image"
+                style={styles.heroImage}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+                transition={200}
+                onLoad={() => setImageLoaded(true)}
+                onError={() => {
+                  setImageError(true);
+                  setImageLoaded(false);
+                }}
+                accessibilityLabel="Attached note photo"
               />
             )}
-          </View>
+          </TouchableOpacity>
         ) : null}
 
-        {/* Metadata Card */}
-        <View
-          style={[
-            styles.card,
-            shadows.sm,
-            {
-              backgroundColor: colors.surface,
-              borderRadius: borderRadius.lg,
-              borderColor: colors.cardBorder,
-              padding: spacing.lg,
-              marginTop: record.image_path ? spacing.md : 0,
-            },
-          ]}
-        >
-          {/* Category Badge & Date Header */}
-          <View style={styles.badgeRow}>
-            <View
-              style={[
-                styles.categoryBadge,
-                {
-                  backgroundColor: categoryColor,
-                  borderRadius: borderRadius.pill,
-                },
-              ]}
-            >
-              <Ionicons
-                name={categoryIcon as keyof typeof Ionicons.glyphMap}
-                size={14}
-                color="#FFFFFF"
-                style={styles.badgeIcon}
-              />
-              <Text style={[styles.badgeText, typography.labelSmall, { color: '#FFFFFF' }]}>
-                {record.category}
-              </Text>
-            </View>
-
-            <Text style={[styles.dateText, typography.caption, { color: colors.textTertiary }]}>
+        <View style={[styles.bodyContent, { paddingHorizontal: spacing.lg }]}>
+          {/* Category & Date Metadata */}
+          <View style={styles.metaRow}>
+            <Text style={[typography.labelMedium, { color: colors.accent, fontWeight: '600' }]}>
+              {record.category}
+            </Text>
+            <Text style={[styles.dot, { color: colors.textTertiary }]}>·</Text>
+            <Text style={[typography.caption, { color: colors.textTertiary }]}>
               {formatFullDateTime(record.created_at)}
             </Text>
           </View>
@@ -235,111 +252,85 @@ export default function RecordDetailScreen() {
             {record.title}
           </Text>
 
-          {/* Notes Content */}
-          <View style={[styles.notesSection, { borderTopColor: colors.borderSubtle }]}>
-            <Text
-              style={[
-                styles.notesText,
-                typography.bodyLarge,
-                { color: record.notes ? colors.textPrimary : colors.textTertiary },
-              ]}
-            >
-              {record.notes || 'No detailed notes provided for this record.'}
-            </Text>
-          </View>
-        </View>
-
-        {/* Action Buttons */}
-        <View style={styles.actionsContainer}>
-          <TouchableOpacity
+          {/* Notes Body */}
+          <Text
             style={[
-              styles.actionBtn,
-              {
-                backgroundColor: colors.surface,
-                borderColor: colors.border,
-                borderRadius: borderRadius.md,
-              },
+              styles.notesBody,
+              typography.bodyLarge,
+              { color: record.notes ? colors.textPrimary : colors.textTertiary },
             ]}
-            onPress={() => router.push(`/(app)/edit/${record.id}`)}
-            accessibilityRole="button"
-            accessibilityLabel="Edit record"
           >
-            <Ionicons name="create-outline" size={18} color={colors.textPrimary} style={styles.btnIcon} />
-            <Text style={[styles.btnText, typography.labelMedium, { color: colors.textPrimary }]}>
-              Edit
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.actionBtn,
-              {
-                backgroundColor: colors.surface,
-                borderColor: colors.border,
-                borderRadius: borderRadius.md,
-              },
-            ]}
-            onPress={handleShare}
-            disabled={sharing}
-            accessibilityRole="button"
-            accessibilityLabel="Share record"
-          >
-            {sharing ? (
-              <ActivityIndicator size="small" color={colors.primary} />
-            ) : (
-              <>
-                <Ionicons
-                  name="share-outline"
-                  size={18}
-                  color={colors.textPrimary}
-                  style={styles.btnIcon}
-                />
-                <Text style={[styles.btnText, typography.labelMedium, { color: colors.textPrimary }]}>
-                  Share
-                </Text>
-              </>
-            )}
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.actionBtn,
-              {
-                backgroundColor: colors.errorBackground,
-                borderColor: colors.error,
-                borderRadius: borderRadius.md,
-              },
-            ]}
-            onPress={() => setShowDeleteDialog(true)}
-            accessibilityRole="button"
-            accessibilityLabel="Delete record"
-          >
-            <Ionicons name="trash-outline" size={18} color={colors.error} style={styles.btnIcon} />
-            <Text style={[styles.btnText, typography.labelMedium, { color: colors.error }]}>
-              Delete
-            </Text>
-          </TouchableOpacity>
+            {record.notes || 'No notes written.'}
+          </Text>
         </View>
       </ScrollView>
+
+      {/* Fullscreen Photo Viewer */}
+      <ImageViewer
+        visible={showImageViewer}
+        uri={imageUrl}
+        onClose={() => setShowImageViewer(false)}
+      />
+
+      {/* Share Options ActionSheet */}
+      <ActionSheet
+        visible={showShareSheet}
+        title="Share Note"
+        options={[
+          {
+            label: 'Share as image card',
+            icon: 'image-outline',
+            onPress: handleShareImageCard,
+          },
+          {
+            label: 'Share as text',
+            icon: 'text-outline',
+            onPress: handleShareText,
+          },
+        ]}
+        onClose={() => setShowShareSheet(false)}
+      />
 
       {/* Delete Confirmation Dialog */}
       <ConfirmDialog
         visible={showDeleteDialog}
-        title="Delete Record"
-        message="Are you sure you want to permanently delete this record and its attached photo? This action cannot be undone."
+        title="Delete Note"
+        message="Are you sure you want to permanently delete this note and its photo?"
         confirmLabel="Delete"
         isDestructive
         loading={deleting}
         onConfirm={handleDelete}
         onCancel={() => setShowDeleteDialog(false)}
       />
-    </View>
+
+      {/* Off-screen rendered ShareCard for view-shot capturing */}
+      <View
+        pointerEvents="none"
+        style={styles.offscreenShare}
+      >
+        <ShareCard
+          ref={shareCardRef}
+          record={record}
+          imageUrl={record.image_path && !imageError ? imageUrl : null}
+          onImageLoaded={() => setImageLoaded(true)}
+          onImageError={() => setImageLoaded(false)}
+        />
+      </View>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 4,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  headerRightActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   content: {
     paddingBottom: 40,
@@ -349,77 +340,51 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  notFoundText: {},
   backBtn: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingVertical: 10,
   },
-  imageContainer: {
+  heroImageContainer: {
     width: '100%',
-    height: 260,
+    aspectRatio: 4 / 3,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
     overflow: 'hidden',
-    borderWidth: 1,
+    marginBottom: 16,
   },
-  fullImage: {
+  heroImage: {
     width: '100%',
     height: '100%',
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
   },
-  imagePlaceholder: {
-    width: '100%',
-    height: '100%',
+  imageFallback: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  imagePlaceholderText: {},
-  card: {
-    borderWidth: 1,
+  bodyContent: {
+    paddingTop: 4,
   },
-  badgeRow: {
+  metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
+    marginBottom: 8,
   },
-  categoryBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+  dot: {
+    marginHorizontal: 6,
+    fontSize: 10,
   },
-  badgeIcon: {
-    marginRight: 6,
-  },
-  badgeText: {
-    fontWeight: '600',
-  },
-  dateText: {},
   title: {
     marginBottom: 16,
   },
-  notesSection: {
-    borderTopWidth: 1,
-    paddingTop: 16,
+  notesBody: {
+    lineHeight: 25,
   },
-  notesText: {
-    lineHeight: 24,
-  },
-  actionsContainer: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 20,
-  },
-  actionBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    paddingVertical: 12,
-  },
-  btnIcon: {
-    marginRight: 6,
-  },
-  btnText: {
-    fontWeight: '600',
+  offscreenShare: {
+    position: 'absolute',
+    left: -10000,
+    top: 0,
+    opacity: 0,
   },
 });

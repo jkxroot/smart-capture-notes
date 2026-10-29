@@ -9,9 +9,6 @@ export interface AuthResponse {
 }
 
 export const authService = {
-  /**
-   * Signs in user with email and password
-   */
   async signIn(email: string, password: string): Promise<AuthResponse> {
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -41,9 +38,6 @@ export const authService = {
     }
   },
 
-  /**
-   * Signs up a new user with email and password
-   */
   async signUp(email: string, password: string): Promise<AuthResponse> {
     try {
       const { data, error } = await supabase.auth.signUp({
@@ -73,24 +67,16 @@ export const authService = {
     }
   },
 
-  /**
-   * Signs out the current user and clears session
-   */
-  async signOut(): Promise<{ error: string | null }> {
+  async signOut(): Promise<void> {
     try {
-      const { error } = await supabase.auth.signOut();
-      if (error) {
-        return { error: getFriendlyErrorMessage(error) };
-      }
-      return { error: null };
+      await supabase.auth.signOut();
     } catch (err) {
-      return { error: getFriendlyErrorMessage(err) };
+      if (__DEV__) {
+        console.warn('[SignOut Error]:', err);
+      }
     }
   },
 
-  /**
-   * Retrieves the current active session
-   */
   async getSession(): Promise<{ session: Session | null; error: string | null }> {
     try {
       const { data, error } = await supabase.auth.getSession();

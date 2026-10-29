@@ -1,13 +1,23 @@
-import React, { useEffect } from 'react';
+import { useEffect } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import * as SplashScreen from 'expo-splash-screen';
+import {
+  useFonts,
+  Inter_400Regular,
+  Inter_500Medium,
+  Inter_600SemiBold,
+  Inter_700Bold,
+} from '@expo-google-fonts/inter';
 import { ThemeProvider, useTheme } from '../src/context/ThemeContext';
 import { ToastProvider } from '../src/context/ToastContext';
+import { NetworkProvider } from '../src/context/NetworkContext';
 import { AuthProvider, useAuth } from '../src/context/AuthContext';
 import { isSupabaseConfigured } from '../src/lib/supabase';
 import { ConfigErrorScreen } from '../src/components/ConfigErrorScreen';
-import { LoadingOverlay } from '../src/components/LoadingOverlay';
+
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 function NavigationGuard() {
   const { session, loading } = useAuth();
@@ -21,17 +31,11 @@ function NavigationGuard() {
     const inAuthGroup = segments[0] === '(auth)';
 
     if (!session && !inAuthGroup) {
-      // User is not authenticated and trying to access protected screen -> Redirect to login
       router.replace('/(auth)/login');
     } else if (session && inAuthGroup) {
-      // User is authenticated and trying to access auth screen -> Redirect to app home
       router.replace('/(app)');
     }
   }, [session, loading, segments, router]);
-
-  if (loading) {
-    return <LoadingOverlay message="Restoring session..." />;
-  }
 
   return (
     <>
@@ -51,6 +55,23 @@ function NavigationGuard() {
 }
 
 export default function RootLayout() {
+  const [fontsLoaded] = useFonts({
+    Inter_400Regular,
+    Inter_500Medium,
+    Inter_600SemiBold,
+    Inter_700Bold,
+  });
+
+  useEffect(() => {
+    if (fontsLoaded) {
+      SplashScreen.hideAsync().catch(() => {});
+    }
+  }, [fontsLoaded]);
+
+  if (!fontsLoaded) {
+    return null;
+  }
+
   if (!isSupabaseConfigured) {
     return (
       <ThemeProvider>
@@ -64,11 +85,13 @@ export default function RootLayout() {
   return (
     <ThemeProvider>
       <SafeAreaProvider>
-        <ToastProvider>
-          <AuthProvider>
-            <NavigationGuard />
-          </AuthProvider>
-        </ToastProvider>
+        <NetworkProvider>
+          <ToastProvider>
+            <AuthProvider>
+              <NavigationGuard />
+            </AuthProvider>
+          </ToastProvider>
+        </NetworkProvider>
       </SafeAreaProvider>
     </ThemeProvider>
   );

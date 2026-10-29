@@ -12,10 +12,10 @@ export const ConfigErrorScreen: React.FC = () => {
         <View
           style={[
             styles.iconContainer,
-            { backgroundColor: colors.errorBackground, borderRadius: borderRadius.pill },
+            { backgroundColor: colors.dangerLight, borderRadius: borderRadius.pill },
           ]}
         >
-          <Ionicons name="warning-outline" size={48} color={colors.error} />
+          <Ionicons name="warning-outline" size={48} color={colors.danger} />
         </View>
 
         <Text style={[styles.title, typography.h2, { color: colors.textPrimary }]}>
@@ -23,7 +23,7 @@ export const ConfigErrorScreen: React.FC = () => {
         </Text>
 
         <Text style={[styles.description, typography.bodyLarge, { color: colors.textSecondary }]}>
-          Smart Capture & Notes requires Supabase API credentials to connect to Auth, Database, and Storage.
+          Smart Capture requires Supabase API credentials to connect to Auth, Database, and Storage.
         </Text>
 
         <View
@@ -31,7 +31,7 @@ export const ConfigErrorScreen: React.FC = () => {
             styles.instructionsCard,
             {
               backgroundColor: colors.surface,
-              borderColor: colors.cardBorder,
+              borderColor: colors.border,
               borderRadius: borderRadius.lg,
               padding: spacing.lg,
             },
@@ -52,7 +52,7 @@ export const ConfigErrorScreen: React.FC = () => {
           <View style={[styles.codeBox, { backgroundColor: colors.surfaceMuted, borderRadius: borderRadius.sm }]}>
             <Text style={[styles.codeText, { color: colors.textPrimary }]}>
               EXPO_PUBLIC_SUPABASE_URL=https://xyz.supabase.co{'\n'}
-              EXPO_PUBLIC_SUPABASE_ANON_KEY=eyJh...
+              EXPO_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_...
             </Text>
           </View>
 
