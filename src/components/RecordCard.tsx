@@ -6,6 +6,7 @@ import { RecordItem } from '../types/record';
 import { useTheme } from '../context/ThemeContext';
 import { storageService } from '../services/storageService';
 import { formatDate } from '../utils/formatDate';
+import { getPrimaryImagePath } from '../utils/images';
 
 interface RecordCardProps {
   record: RecordItem;
@@ -25,16 +26,18 @@ export const RecordCard = ({
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imageError, setImageError] = useState<boolean>(false);
 
+  const primaryPath = getPrimaryImagePath(record);
+
   useEffect(() => {
     let isMounted = true;
-    if (!record.image_path) {
+    if (!primaryPath) {
       setImageUrl(null);
       return;
     }
 
     setImageError(false);
     storageService
-      .getSignedUrl(record.image_path)
+      .getSignedUrl(primaryPath)
       .then(({ url, error }) => {
         if (isMounted) {
           if (error || !url) {
@@ -53,7 +56,7 @@ export const RecordCard = ({
     return () => {
       isMounted = false;
     };
-  }, [record.image_path]);
+  }, [primaryPath]);
 
   // Wide screen layout (2 columns): Image-first card with 4:3 cover image on top
   if (isWide) {
@@ -75,7 +78,7 @@ export const RecordCard = ({
       >
         {/* 4:3 Cover Image on Top */}
         <View style={[styles.wideImageContainer, { backgroundColor: colors.surfaceMuted }]}>
-          {record.image_path && !imageError ? (
+          {primaryPath && !imageError ? (
             <Image
               source={imageUrl ? { uri: imageUrl } : undefined}
               style={styles.wideImage}
@@ -185,7 +188,7 @@ export const RecordCard = ({
             },
           ]}
         >
-          {record.image_path && !imageError ? (
+          {primaryPath && !imageError ? (
             <Image
               source={imageUrl ? { uri: imageUrl } : undefined}
               style={styles.thumbnail}

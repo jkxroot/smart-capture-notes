@@ -8,12 +8,9 @@ import {
   BackHandler,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Image } from 'expo-image';
-import { Ionicons } from '@expo/vector-icons';
 import { useRecords } from '../../src/context/RecordsContext';
 import { useTheme } from '../../src/context/ThemeContext';
 import { useToast } from '../../src/context/ToastContext';
-import { useNetwork } from '../../src/context/NetworkContext';
 import { useImagePicker } from '../../src/hooks/useImagePicker';
 import { Screen } from '../../src/components/Screen';
 import { Input } from '../../src/components/Input';
@@ -21,6 +18,7 @@ import { Button } from '../../src/components/Button';
 import { Chip } from '../../src/components/Chip';
 import { ActionSheet, ActionOption } from '../../src/components/ActionSheet';
 import { ConfirmDialog } from '../../src/components/ConfirmDialog';
+import { ImageAttachments } from '../../src/components/ImageAttachments';
 import { Category, CATEGORIES } from '../../src/types/record';
 import { validateRecordTitle, validateRecordNotes } from '../../src/utils/validation';
 import { APP_CONFIG } from '../../src/utils/constants';
@@ -30,7 +28,6 @@ export default function AddRecordScreen() {
   const { createRecord } = useRecords();
   const { colors, typography, spacing } = useTheme();
   const { showToast } = useToast();
-  const { isOffline } = useNetwork();
 
   const [title, setTitle] = useState('');
   const [notes, setNotes] = useState('');
@@ -44,15 +41,16 @@ export default function AddRecordScreen() {
   const [showDiscardDialog, setShowDiscardDialog] = useState(false);
 
   const {
-    selectedImageUri,
+    selectedImageUris,
     isProcessing,
     takePhoto,
     pickFromGallery,
-    clearImage,
+    removeAt,
+    clearImages,
   } = useImagePicker();
 
   const hasUnsavedChanges =
-    title.trim().length > 0 || notes.trim().length > 0 || Boolean(selectedImageUri);
+    title.trim().length > 0 || notes.trim().length > 0 || selectedImageUris.length > 0;
 
   // Hardware back handler for Android
   useEffect(() => {
@@ -78,11 +76,6 @@ export default function AddRecordScreen() {
 
   const handleSave = async () => {
     if (submitting || isProcessing) return;
-
-    if (isOffline) {
-      showToast('You are offline. Cannot save note without internet.', 'error');
-      return;
-    }
 
     setTitleError(null);
     setNotesError(null);
@@ -110,11 +103,14 @@ export default function AddRecordScreen() {
           notes: notes.trim() ? notes.trim() : null,
           category,
         },
-        selectedImageUri
+        selectedImageUris
       );
 
       if (result.success) {
-        showToast('Note created.', 'success');
+        showToast(
+          result.record?.sync_status === 'pending' ? 'Note saved offline.' : 'Note created.',
+          'success'
+        );
         router.back();
       } else {
         showToast(result.error || 'Failed to save note.', 'error');
@@ -145,12 +141,12 @@ export default function AddRecordScreen() {
     },
   ];
 
-  if (selectedImageUri) {
+  if (selectedImageUris.length > 0) {
     imageOptions.push({
-      label: 'Remove Photo',
+      label: 'Remove All Photos',
       icon: 'trash-outline',
       destructive: true,
-      onPress: clearImage,
+      onPress: clearImages,
     });
   }
 
@@ -180,69 +176,12 @@ export default function AddRecordScreen() {
         contentContainerStyle={[styles.scrollContent, { padding: spacing.lg }]}
         keyboardShouldPersistTaps="handled"
       >
-        {/* Large Image Header Area (4:3 ratio) */}
-        {selectedImageUri ? (
-          <View style={[styles.imageHeaderWrapper, { borderRadius: 16 }]}>
-            <Image
-              source={{ uri: selectedImageUri }}
-              style={[styles.attachedImage, { borderRadius: 16 }]}
-              contentFit="cover"
-              cachePolicy="memory-disk"
-              accessibilityLabel="Attached photo preview"
-            />
-            <View style={styles.imageActionRow}>
-              <TouchableOpacity
-                onPress={() => setShowImageSheet(true)}
-                activeOpacity={0.7}
-                style={[
-                  styles.imagePillBtn,
-                  { backgroundColor: colors.surface, borderColor: colors.border },
-                ]}
-              >
-                <Text style={[typography.labelSmall, { color: colors.textPrimary }]}>
-                  Change
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={clearImage}
-                activeOpacity={0.7}
-                style={[
-                  styles.imagePillBtn,
-                  { backgroundColor: colors.dangerLight, borderColor: 'transparent' },
-                ]}
-              >
-                <Text style={[typography.labelSmall, { color: colors.danger }]}>
-                  Remove
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        ) : (
-          <TouchableOpacity
-            onPress={() => setShowImageSheet(true)}
-            activeOpacity={0.7}
-            style={[
-              styles.emptyImagePlaceholder,
-              {
-                borderColor: colors.border,
-                backgroundColor: colors.surfaceMuted,
-                borderRadius: 16,
-              },
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel="Add photo attachment"
-          >
-            <Ionicons name="camera-outline" size={26} color={colors.textTertiary} />
-            <Text
-              style={[
-                typography.labelMedium,
-                { color: colors.textSecondary, marginTop: 6 },
-              ]}
-            >
-              Add Photo
-            </Text>
-          </TouchableOpacity>
-        )}
+        <ImageAttachments
+          uris={selectedImageUris}
+          onAddPress={() => setShowImageSheet(true)}
+          onRemoveAt={removeAt}
+          disabled={submitting || isProcessing}
+        />
 
         {/* Title Input */}
         <Input
@@ -257,7 +196,7 @@ export default function AddRecordScreen() {
           maxLength={APP_CONFIG.MAX_TITLE_LENGTH}
           showCounterNearLimit
           editable={!submitting}
-          containerStyle={{ marginTop: spacing.md }}
+          containerStyle={{ marginTop: spacing.sm }}
         />
 
         {/* Category Chips */}

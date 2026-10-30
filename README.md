@@ -2,13 +2,30 @@
 
 A mobile notes and media capture application built with React Native, Expo, and Supabase.
 
-Demo video: [Walkthrough Video (YouTube / Loom)](#)
+**GitHub:** https://github.com/jkxroot/smart-capture-notes
+
+**Installable Android APK (sideload):**  
+https://expo.dev/artifacts/eas/HwHpihW8MNXkbk_I0MUUJC89Ok7F9FFUry3CcBQ8unQ.apk  
+Build page: https://expo.dev/accounts/jkxroot1/projects/smart-capture/builds/9cefa88a-362d-4014-b200-bbffc1479e26
+
+Demo video: Add a Loom/YouTube link here after recording (open the APK or Expo Go, capture a 1–2 minute walkthrough).
 
 ---
 
 ## Screenshots
 
-The application follows a content-first, distraction-free visual design system with warm terracotta accents and light/dark theme support.
+Capture these from the running app (APK or Expo Go) and save them under `docs/screenshots/` before submission:
+
+| File | Screen |
+|---|---|
+| `01-home.png` | Notes list with search / category chips |
+| `02-detail.png` | Note detail with image |
+| `03-add.png` | Create note form |
+| `04-edit.png` | Edit note form |
+| `05-dashboard.png` | Category dashboard |
+| `06-settings.png` | Settings / account |
+
+Then the table below will render in GitHub:
 
 | Home & List | Note Details | Add Note |
 |:---:|:---:|:---:|
@@ -295,11 +312,33 @@ PostgREST interprets commas `,`, percent signs `%`, underscores `_`, and backsla
 
 ---
 
+## Assignment Coverage
+
+| Requirement | Status |
+|---|---|
+| Camera / gallery capture + preview | Done |
+| Title, notes, category | Done |
+| Persist after restart (Supabase + session) | Done |
+| List with thumbnails, view / edit / delete | Done |
+| Search + category filter | Done |
+| Permissions, missing images, validation, loading / errors | Done |
+| Cross-platform (React Native / Expo) | Done |
+| Architecture + limitations docs | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/LIMITATIONS.md](docs/LIMITATIONS.md) |
+| Bonus: share/export record | Done (image card + text) |
+| Bonus: offline-friendly compression | Done (1600px / JPEG 0.7) |
+| Bonus: category dashboard | Done |
+| Bonus: multiple images per record | Done (up to 5) |
+| Bonus: offline create/edit/delete queue | Done (SQLite outbox) |
+| Bonus: full-text search | Done (Postgres `tsvector`, ILIKE fallback) |
+| Bonus: video recording | Not implemented (documented) |
+
 ## Known Limitations
 
-- **Network Dependency**: Mutations require an active internet connection. The app provides real-time offline banners and disables mutation actions with clear messages, but does not yet maintain a durable local SQLite synchronization queue.
-- **Single Attachment**: Records support one attached image. Multi-image galleries are not implemented.
+- **Offline pin / share**: Pin updates and share still require connectivity.
+- **Offline images**: Local photo URIs are queued for upload; if a file is cleared before sync, that attachment may be skipped.
+- **No Video**: Camera capture is images only.
 - **Lossy Compression**: Source photos are compressed to JPEG; RAW and HEIC metadata are not retained.
+- **APK size**: Preview builds target `arm64-v8a` only to reduce download size on modern phones.
 
 For a detailed review of constraints and future roadmap plans, see [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
 
@@ -307,10 +346,13 @@ For a detailed review of constraints and future roadmap plans, see [docs/LIMITAT
 
 ## Verification and Testing
 
-To verify TypeScript and application compilation:
+To verify TypeScript, unit tests, and application compilation:
 ```bash
 # Verify static types
 npx tsc --noEmit
+
+# Unit tests (utils)
+npm test
 
 # Check unused parameters and imports
 npx tsc --noEmit --noUnusedLocals --noUnusedParameters

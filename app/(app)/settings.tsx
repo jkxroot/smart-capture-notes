@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
@@ -8,8 +9,10 @@ import { Screen } from '../../src/components/Screen';
 import { Card } from '../../src/components/Card';
 import { ConfirmDialog } from '../../src/components/ConfirmDialog';
 import { OfflineBanner } from '../../src/components/OfflineBanner';
+import { IconButton } from '../../src/components/IconButton';
 
 export default function SettingsScreen() {
+  const router = useRouter();
   const { user, signOut } = useAuth();
   const { colors, typography, spacing, isDark } = useTheme();
   const { isOffline } = useNetwork();
@@ -27,10 +30,21 @@ export default function SettingsScreen() {
   return (
     <Screen edges={['top', 'left', 'right']}>
       <OfflineBanner />
+      <View style={[styles.topBar, { borderBottomColor: colors.borderSubtle, paddingHorizontal: spacing.md }]}>
+        <IconButton
+          name="chevron-back"
+          accessibilityLabel="Go back"
+          onPress={() => router.back()}
+        />
+        <Text style={[typography.h3, { color: colors.textPrimary }]}>
+          Settings
+        </Text>
+        <View style={{ width: 44 }} />
+      </View>
       <ScrollView contentContainerStyle={[styles.content, { padding: spacing.lg }]}>
         <View style={styles.header}>
-          <Text style={[typography.h1, { color: colors.textPrimary }]}>
-            Settings
+          <Text style={[typography.bodyMedium, { color: colors.textSecondary }]}>
+            Account, appearance, and session
           </Text>
         </View>
 
@@ -135,11 +149,18 @@ export default function SettingsScreen() {
 }
 
 const styles = StyleSheet.create({
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 4,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
   content: {
     paddingBottom: 40,
   },
   header: {
-    marginBottom: 20,
+    marginBottom: 16,
   },
   sectionLabel: {
     marginBottom: 8,

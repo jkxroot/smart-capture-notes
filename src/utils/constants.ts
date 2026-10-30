@@ -10,6 +10,7 @@ export const APP_CONFIG = {
   MAX_NOTES_LENGTH: 2000,
   COMPRESSION_MAX_WIDTH: 1600,
   COMPRESSION_QUALITY: 0.7,
+  MAX_IMAGES_PER_RECORD: 5,
 } as const;
 
 export const CATEGORY_ICONS: Record<Category, string> = {

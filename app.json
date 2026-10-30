@@ -15,6 +15,8 @@
       }
     },
     "android": {
+      "package": "com.smartcapture.notes",
+      "versionCode": 1,
       "adaptiveIcon": {
         "backgroundColor": "#1E6560",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -25,7 +27,10 @@
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.WRITE_EXTERNAL_STORAGE"
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "web": {
@@ -48,7 +53,27 @@
           "photosPermission": "The app accesses your photos to let you attach pictures to your notes.",
           "cameraPermission": "The app accesses your camera to let you take photos for your notes."
         }
+      ],
+      "expo-sqlite",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "architectures": ["arm64-v8a"]
+          }
+        }
       ]
-    ]
+    ],
+    "extra": {
+      "router": {
+        "asyncRoutes": {
+          "web": true
+        }
+      },
+      "eas": {
+        "projectId": "9bfdce3a-2a3e-43ef-a26e-8f655e63ddf6"
+      }
+    },
+    "owner": "jkxroot1"
   }
 }

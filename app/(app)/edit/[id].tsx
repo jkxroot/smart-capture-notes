@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,12 +9,10 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useRecords } from '../../../src/context/RecordsContext';
 import { useTheme } from '../../../src/context/ThemeContext';
 import { useToast } from '../../../src/context/ToastContext';
-import { useNetwork } from '../../../src/context/NetworkContext';
 import { storageService } from '../../../src/services/storageService';
 import { useImagePicker } from '../../../src/hooks/useImagePicker';
 import { Screen } from '../../../src/components/Screen';
@@ -23,9 +21,11 @@ import { Button } from '../../../src/components/Button';
 import { Chip } from '../../../src/components/Chip';
 import { ActionSheet, ActionOption } from '../../../src/components/ActionSheet';
 import { ConfirmDialog } from '../../../src/components/ConfirmDialog';
+import { ImageAttachments } from '../../../src/components/ImageAttachments';
 import { Category, CATEGORIES } from '../../../src/types/record';
 import { validateRecordTitle, validateRecordNotes } from '../../../src/utils/validation';
 import { APP_CONFIG } from '../../../src/utils/constants';
+import { getRecordImagePaths } from '../../../src/utils/images';
 
 export default function EditRecordScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -33,9 +33,9 @@ export default function EditRecordScreen() {
   const { getRecordById, updateRecord } = useRecords();
   const { colors, typography, spacing } = useTheme();
   const { showToast } = useToast();
-  const { isOffline } = useNetwork();
 
   const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const [initialTitle, setInitialTitle] = useState('');
@@ -46,8 +46,9 @@ export default function EditRecordScreen() {
   const [notes, setNotes] = useState('');
   const [category, setCategory] = useState<Category>('Personal');
 
-  const [existingImageUrl, setExistingImageUrl] = useState<string | null>(null);
-  const [removeExistingImage, setRemoveExistingImage] = useState(false);
+  const [retainedRemotePaths, setRetainedRemotePaths] = useState<string[]>([]);
+  const [remotePreviewUris, setRemotePreviewUris] = useState<string[]>([]);
+  const initialRemoteCountRef = useRef(0);
 
   const [titleError, setTitleError] = useState<string | null>(null);
   const [notesError, setNotesError] = useState<string | null>(null);
@@ -56,40 +57,58 @@ export default function EditRecordScreen() {
   const [showDiscardDialog, setShowDiscardDialog] = useState(false);
 
   const {
-    selectedImageUri,
+    selectedImageUris,
     isProcessing,
     takePhoto,
     pickFromGallery,
-    clearImage,
+    removeAt,
+    clearImages,
   } = useImagePicker();
 
   useEffect(() => {
     let isMounted = true;
-    if (!id) return;
+    if (!id) {
+      setNotFound(true);
+      setLoading(false);
+      return;
+    }
 
     setLoading(true);
+    setNotFound(false);
     getRecordById(id)
       .then((record) => {
-        if (isMounted && record) {
-          setTitle(record.title);
-          setInitialTitle(record.title);
-          setNotes(record.notes || '');
-          setInitialNotes(record.notes || '');
-          setCategory(record.category);
-          setInitialCategory(record.category);
-
-          if (record.image_path) {
-            storageService.getSignedUrl(record.image_path).then(({ url }) => {
-              if (isMounted && url) {
-                setExistingImageUrl(url);
-              }
-            });
-          }
+        if (!isMounted) return;
+        if (!record) {
+          setNotFound(true);
           setLoading(false);
+          return;
         }
+
+        setTitle(record.title);
+        setInitialTitle(record.title);
+        setNotes(record.notes || '');
+        setInitialNotes(record.notes || '');
+        setCategory(record.category);
+        setInitialCategory(record.category);
+
+        const paths = getRecordImagePaths(record);
+        initialRemoteCountRef.current = paths.length;
+        setRetainedRemotePaths(paths);
+        if (paths.length > 0) {
+          Promise.all(paths.map((path) => storageService.getSignedUrl(path))).then((results) => {
+            if (!isMounted) return;
+            setRemotePreviewUris(results.map((r) => r.url).filter(Boolean) as string[]);
+          });
+        } else {
+          setRemotePreviewUris([]);
+        }
+        setLoading(false);
       })
       .catch(() => {
-        if (isMounted) setLoading(false);
+        if (isMounted) {
+          setNotFound(true);
+          setLoading(false);
+        }
       });
 
     return () => {
@@ -101,8 +120,8 @@ export default function EditRecordScreen() {
     title !== initialTitle ||
     notes !== initialNotes ||
     category !== initialCategory ||
-    Boolean(selectedImageUri) ||
-    removeExistingImage;
+    selectedImageUris.length > 0 ||
+    retainedRemotePaths.length !== initialRemoteCountRef.current;
 
   useEffect(() => {
     const onBackPress = () => {
@@ -125,19 +144,8 @@ export default function EditRecordScreen() {
     }
   };
 
-  const handleRemovePhoto = () => {
-    clearImage();
-    setRemoveExistingImage(true);
-    setExistingImageUrl(null);
-  };
-
   const handleSave = async () => {
     if (!id || submitting || isProcessing) return;
-
-    if (isOffline) {
-      showToast('You are offline. Cannot update note without internet.', 'error');
-      return;
-    }
 
     setTitleError(null);
     setNotesError(null);
@@ -159,6 +167,11 @@ export default function EditRecordScreen() {
 
     setSubmitting(true);
     try {
+      const removeAll =
+        retainedRemotePaths.length === 0 &&
+        selectedImageUris.length === 0 &&
+        initialRemoteCountRef.current > 0;
+
       const result = await updateRecord(
         id,
         {
@@ -166,12 +179,16 @@ export default function EditRecordScreen() {
           notes: notes.trim() ? notes.trim() : null,
           category,
         },
-        selectedImageUri,
-        removeExistingImage
+        selectedImageUris,
+        removeAll,
+        retainedRemotePaths
       );
 
       if (result.success) {
-        showToast('Note updated.', 'success');
+        showToast(
+          result.record?.sync_status === 'pending' ? 'Note saved offline.' : 'Note updated.',
+          'success'
+        );
         router.back();
       } else {
         showToast(result.error || 'Failed to update note.', 'error');
@@ -193,8 +210,51 @@ export default function EditRecordScreen() {
     );
   }
 
+  if (notFound) {
+    return (
+      <Screen edges={['top', 'left', 'right']}>
+        <View style={[styles.centerContainer, { padding: spacing.xxl }]}>
+          <Ionicons name="document-text-outline" size={40} color={colors.textTertiary} />
+          <Text style={[typography.h3, { color: colors.textPrimary, marginTop: 12 }]}>
+            Record Not Found
+          </Text>
+          <Text
+            style={[
+              typography.bodyMedium,
+              { color: colors.textSecondary, marginTop: 6, textAlign: 'center' },
+            ]}
+          >
+            This note may have been deleted or does not exist.
+          </Text>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={[
+              styles.backBtn,
+              {
+                backgroundColor: colors.surfaceMuted,
+                borderRadius: 12,
+                marginTop: 16,
+              },
+            ]}
+          >
+            <Text style={[typography.labelMedium, { color: colors.textPrimary }]}>Go Back</Text>
+          </TouchableOpacity>
+        </View>
+      </Screen>
+    );
+  }
+
   const isFormValid = title.trim().length >= 1 && title.trim().length <= APP_CONFIG.MAX_TITLE_LENGTH;
-  const currentPhotoUri = selectedImageUri || (!removeExistingImage ? existingImageUrl : null);
+  const displayUris = [...remotePreviewUris, ...selectedImageUris];
+
+  const handleRemoveAttachment = (index: number) => {
+    if (index < retainedRemotePaths.length) {
+      setRetainedRemotePaths((prev) => prev.filter((_, i) => i !== index));
+      setRemotePreviewUris((prev) => prev.filter((_, i) => i !== index));
+    } else {
+      removeAt(index - retainedRemotePaths.length);
+    }
+  };
 
   const imageOptions: ActionOption[] = [
     {
@@ -213,12 +273,16 @@ export default function EditRecordScreen() {
     },
   ];
 
-  if (currentPhotoUri) {
+  if (displayUris.length > 0) {
     imageOptions.push({
-      label: 'Remove Photo',
+      label: 'Remove All Photos',
       icon: 'trash-outline',
       destructive: true,
-      onPress: handleRemovePhoto,
+      onPress: () => {
+        clearImages();
+        setRetainedRemotePaths([]);
+        setRemotePreviewUris([]);
+      },
     });
   }
 
@@ -248,69 +312,12 @@ export default function EditRecordScreen() {
         contentContainerStyle={[styles.scrollContent, { padding: spacing.lg }]}
         keyboardShouldPersistTaps="handled"
       >
-        {/* Large Image Header (4:3 ratio) */}
-        {currentPhotoUri ? (
-          <View style={[styles.imageHeaderWrapper, { borderRadius: 16 }]}>
-            <Image
-              source={{ uri: currentPhotoUri }}
-              style={[styles.attachedImage, { borderRadius: 16 }]}
-              contentFit="cover"
-              cachePolicy="memory-disk"
-              accessibilityLabel="Attached note photo preview"
-            />
-            <View style={styles.imageActionRow}>
-              <TouchableOpacity
-                onPress={() => setShowImageSheet(true)}
-                activeOpacity={0.7}
-                style={[
-                  styles.imagePillBtn,
-                  { backgroundColor: colors.surface, borderColor: colors.border },
-                ]}
-              >
-                <Text style={[typography.labelSmall, { color: colors.textPrimary }]}>
-                  Change
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={handleRemovePhoto}
-                activeOpacity={0.7}
-                style={[
-                  styles.imagePillBtn,
-                  { backgroundColor: colors.dangerLight, borderColor: 'transparent' },
-                ]}
-              >
-                <Text style={[typography.labelSmall, { color: colors.danger }]}>
-                  Remove
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        ) : (
-          <TouchableOpacity
-            onPress={() => setShowImageSheet(true)}
-            activeOpacity={0.7}
-            style={[
-              styles.emptyImagePlaceholder,
-              {
-                borderColor: colors.border,
-                backgroundColor: colors.surfaceMuted,
-                borderRadius: 16,
-              },
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel="Add photo attachment"
-          >
-            <Ionicons name="camera-outline" size={26} color={colors.textTertiary} />
-            <Text
-              style={[
-                typography.labelMedium,
-                { color: colors.textSecondary, marginTop: 6 },
-              ]}
-            >
-              Add Photo
-            </Text>
-          </TouchableOpacity>
-        )}
+        <ImageAttachments
+          uris={displayUris}
+          onAddPress={() => setShowImageSheet(true)}
+          onRemoveAt={handleRemoveAttachment}
+          disabled={submitting || isProcessing}
+        />
 
         {/* Title Input */}
         <Input
@@ -325,7 +332,7 @@ export default function EditRecordScreen() {
           maxLength={APP_CONFIG.MAX_TITLE_LENGTH}
           showCounterNearLimit
           editable={!submitting}
-          containerStyle={{ marginTop: spacing.md }}
+          containerStyle={{ marginTop: spacing.sm }}
         />
 
         {/* Category Chips */}
@@ -419,6 +426,10 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  backBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
   },
   topBar: {
     flexDirection: 'row',

@@ -31,7 +31,7 @@ export function isAbortError(error: unknown): boolean {
 export function getFriendlyErrorMessage(error: unknown): string {
   if (!error) return 'An unexpected error occurred.';
 
-  if (__DEV__) {
+  if (typeof __DEV__ !== 'undefined' && __DEV__) {
     console.warn('[App Error Log]:', error);
   }
 

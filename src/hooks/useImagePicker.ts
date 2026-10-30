@@ -1,26 +1,33 @@
 import { useState, useCallback } from 'react';
 import { imageService } from '../services/imageService';
 import { useToast } from '../context/ToastContext';
+import { APP_CONFIG } from '../utils/constants';
 
-export function useImagePicker(initialUri: string | null = null) {
-  const [selectedImageUri, setSelectedImageUri] = useState<string | null>(initialUri);
+export function useImagePicker(initialUris: string[] = []) {
+  const [selectedImageUris, setSelectedImageUris] = useState<string[]>(initialUris);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const { showToast } = useToast();
+
+  const appendUri = useCallback((uri: string) => {
+    setSelectedImageUris((prev) => {
+      if (prev.length >= APP_CONFIG.MAX_IMAGES_PER_RECORD) {
+        showToast(`Maximum ${APP_CONFIG.MAX_IMAGES_PER_RECORD} photos per note.`, 'info');
+        return prev;
+      }
+      return [...prev, uri];
+    });
+  }, [showToast]);
 
   const takePhoto = useCallback(async (): Promise<string | null> => {
     setIsProcessing(true);
     try {
       const result = await imageService.capturePhoto();
       if (result.canceled || !result.uri) {
-        if (result.error) {
-          showToast(result.error, 'error');
-        }
+        if (result.error) showToast(result.error, 'error');
         return null;
       }
-
-      // Automatically compress photo to max 1600px width and 0.7 quality
       const compressed = await imageService.compressImage(result.uri, result.width);
-      setSelectedImageUri(compressed.uri);
+      appendUri(compressed.uri);
       return compressed.uri;
     } catch {
       showToast('Failed to capture photo.', 'error');
@@ -28,22 +35,18 @@ export function useImagePicker(initialUri: string | null = null) {
     } finally {
       setIsProcessing(false);
     }
-  }, [showToast]);
+  }, [appendUri, showToast]);
 
   const pickFromGallery = useCallback(async (): Promise<string | null> => {
     setIsProcessing(true);
     try {
       const result = await imageService.pickImageFromGallery();
       if (result.canceled || !result.uri) {
-        if (result.error) {
-          showToast(result.error, 'error');
-        }
+        if (result.error) showToast(result.error, 'error');
         return null;
       }
-
-      // Automatically compress photo to max 1600px width and 0.7 quality
       const compressed = await imageService.compressImage(result.uri, result.width);
-      setSelectedImageUri(compressed.uri);
+      appendUri(compressed.uri);
       return compressed.uri;
     } catch {
       showToast('Failed to select image from gallery.', 'error');
@@ -51,18 +54,26 @@ export function useImagePicker(initialUri: string | null = null) {
     } finally {
       setIsProcessing(false);
     }
-  }, [showToast]);
+  }, [appendUri, showToast]);
 
-  const clearImage = useCallback(() => {
-    setSelectedImageUri(null);
+  const removeAt = useCallback((index: number) => {
+    setSelectedImageUris((prev) => prev.filter((_, i) => i !== index));
+  }, []);
+
+  const clearImages = useCallback(() => {
+    setSelectedImageUris([]);
   }, []);
 
   return {
-    selectedImageUri,
-    setSelectedImageUri,
+    selectedImageUris,
+    setSelectedImageUris,
+    /** @deprecated use selectedImageUris */
+    selectedImageUri: selectedImageUris[0] ?? null,
     isProcessing,
     takePhoto,
     pickFromGallery,
-    clearImage,
+    removeAt,
+    clearImages,
+    clearImage: clearImages,
   };
 }

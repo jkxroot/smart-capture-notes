@@ -33,6 +33,7 @@ export default function DashboardScreen() {
   const [total, setTotal] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchStats = useCallback(async (isRefresh: boolean = false) => {
     if (isRefresh) {
@@ -41,10 +42,15 @@ export default function DashboardScreen() {
       setLoading(true);
     }
 
-    const { stats: fetchedStats, total: fetchedTotal } =
-      await recordService.getCategoryStats();
+    const {
+      stats: fetchedStats,
+      total: fetchedTotal,
+      error: fetchError,
+    } = await recordService.getCategoryStats();
+
     setStats(fetchedStats);
     setTotal(fetchedTotal);
+    setError(fetchError);
 
     setLoading(false);
     setRefreshing(false);
@@ -104,6 +110,27 @@ export default function DashboardScreen() {
         {loading ? (
           <View style={styles.centerContainer}>
             <ActivityIndicator size="small" color={colors.accent} />
+          </View>
+        ) : error ? (
+          <View style={styles.centerContainer}>
+            <Text style={[typography.bodyMedium, { color: colors.danger, textAlign: 'center' }]}>
+              {error}
+            </Text>
+            <TouchableOpacity
+              onPress={() => fetchStats(false)}
+              style={[
+                styles.retryBtn,
+                {
+                  backgroundColor: colors.surfaceMuted,
+                  borderRadius: borderRadius.md,
+                  marginTop: 12,
+                },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="Retry loading dashboard"
+            >
+              <Text style={[typography.labelMedium, { color: colors.textPrimary }]}>Retry</Text>
+            </TouchableOpacity>
           </View>
         ) : (
           <View style={styles.barsContainer}>
@@ -215,5 +242,9 @@ const styles = StyleSheet.create({
   },
   progressFill: {
     height: '100%',
+  },
+  retryBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
   },
 });

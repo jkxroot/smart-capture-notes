@@ -11,6 +11,9 @@ export const CATEGORIES: Category[] = [
 
 export type SortOption = 'newest' | 'oldest' | 'alphabetical';
 
+/** Client-only sync marker for offline-created/edited rows. */
+export type SyncStatus = 'synced' | 'pending' | 'failed';
+
 export interface RecordItem {
   id: string;
   user_id: string;
@@ -18,9 +21,13 @@ export interface RecordItem {
   notes: string | null;
   category: Category;
   image_path: string | null;
+  /** Multiple storage paths; empty array when none. */
+  image_paths?: string[] | null;
   is_pinned?: boolean;
   created_at: string;
   updated_at: string;
+  /** Not persisted on server — used for offline queue UX. */
+  sync_status?: SyncStatus;
 }
 
 export interface CreateRecordInput {
@@ -28,6 +35,7 @@ export interface CreateRecordInput {
   notes?: string | null;
   category: Category;
   image_path?: string | null;
+  image_paths?: string[] | null;
   is_pinned?: boolean;
 }
 
@@ -36,6 +44,7 @@ export interface UpdateRecordInput {
   notes?: string | null;
   category?: Category;
   image_path?: string | null;
+  image_paths?: string[] | null;
   is_pinned?: boolean;
 }
 

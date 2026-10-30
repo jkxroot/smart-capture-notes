@@ -14,6 +14,7 @@ import * as Haptics from 'expo-haptics';
 import { useRecords } from '../../../src/context/RecordsContext';
 import { useTheme } from '../../../src/context/ThemeContext';
 import { useToast } from '../../../src/context/ToastContext';
+import { useNetwork } from '../../../src/context/NetworkContext';
 import { storageService } from '../../../src/services/storageService';
 import { shareService } from '../../../src/services/shareService';
 import { Screen } from '../../../src/components/Screen';
@@ -31,6 +32,7 @@ export default function RecordDetailScreen() {
   const { getRecordById, deleteRecord, togglePin } = useRecords();
   const { colors, typography, spacing, borderRadius } = useTheme();
   const { showToast } = useToast();
+  const { isOffline } = useNetwork();
 
   const [record, setRecord] = useState<RecordItem | null>(null);
   const [loading, setLoading] = useState(true);
@@ -117,10 +119,16 @@ export default function RecordDetailScreen() {
 
   const handleTogglePin = async () => {
     if (!record) return;
+    if (isOffline) {
+      showToast('You are offline. Cannot update pin without internet.', 'error');
+      return;
+    }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     const result = await togglePin(record.id);
     if (result.success) {
       setRecord((prev) => (prev ? { ...prev, is_pinned: !prev.is_pinned } : null));
+    } else {
+      showToast(result.error || 'Failed to update pin.', 'error');
     }
   };
 

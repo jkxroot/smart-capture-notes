@@ -2,7 +2,9 @@ import { useEffect } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as SplashScreen from 'expo-splash-screen';
+import 'react-native-reanimated';
 import {
   useFonts,
   Inter_400Regular,
@@ -83,16 +85,18 @@ export default function RootLayout() {
   }
 
   return (
-    <ThemeProvider>
-      <SafeAreaProvider>
-        <NetworkProvider>
-          <ToastProvider>
-            <AuthProvider>
-              <NavigationGuard />
-            </AuthProvider>
-          </ToastProvider>
-        </NetworkProvider>
-      </SafeAreaProvider>
-    </ThemeProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <ThemeProvider>
+        <SafeAreaProvider>
+          <NetworkProvider>
+            <ToastProvider>
+              <AuthProvider>
+                <NavigationGuard />
+              </AuthProvider>
+            </ToastProvider>
+          </NetworkProvider>
+        </SafeAreaProvider>
+      </ThemeProvider>
+    </GestureHandlerRootView>
   );
 }

@@ -13,6 +13,8 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useRecords } from '../../src/context/RecordsContext';
 import { useTheme } from '../../src/context/ThemeContext';
+import { useToast } from '../../src/context/ToastContext';
+import { useNetwork } from '../../src/context/NetworkContext';
 import { useDebounce } from '../../src/hooks/useDebounce';
 import { Screen } from '../../src/components/Screen';
 import { RecordCard } from '../../src/components/RecordCard';
@@ -32,6 +34,8 @@ export default function HomeScreen() {
   const isWide = width >= 700;
 
   const { colors, typography, spacing, borderRadius } = useTheme();
+  const { showToast } = useToast();
+  const { isOffline } = useNetwork();
 
   const {
     records,
@@ -39,6 +43,7 @@ export default function HomeScreen() {
     refreshing,
     loadingMore,
     error,
+    pendingSyncCount,
     selectedCategory,
     sortBy,
     setSelectedCategory,
@@ -69,6 +74,17 @@ export default function HomeScreen() {
     router.push('/(app)/add');
   };
 
+  const handleTogglePin = async (id: string) => {
+    if (isOffline) {
+      showToast('You are offline. Cannot update pin without internet.', 'error');
+      return;
+    }
+    const result = await togglePin(id);
+    if (!result.success) {
+      showToast(result.error || 'Failed to update pin.', 'error');
+    }
+  };
+
   const isFiltering = searchInput.trim().length > 0 || selectedCategory !== 'All';
 
   return (
@@ -83,6 +99,7 @@ export default function HomeScreen() {
           </Text>
           <Text style={[typography.caption, { color: colors.textTertiary, marginTop: 2 }]}>
             {records.length} {records.length === 1 ? 'note' : 'notes'}
+            {pendingSyncCount > 0 ? ` · ${pendingSyncCount} pending sync` : ''}
           </Text>
         </View>
 
@@ -151,7 +168,7 @@ export default function HomeScreen() {
               record={item}
               isWide={isWide}
               onPress={() => router.push(`/(app)/record/${item.id}`)}
-              onTogglePin={() => togglePin(item.id)}
+              onTogglePin={() => handleTogglePin(item.id)}
             />
           </View>
         )}

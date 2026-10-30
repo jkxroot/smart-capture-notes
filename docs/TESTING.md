@@ -12,10 +12,13 @@ Run these commands from the project root:
 # 1. Type Check (Strict TypeScript validation)
 npx tsc --noEmit
 
-# 2. Dead Code & Unused Parameter Audit
+# 2. Unit tests (utils)
+npm test
+
+# 3. Dead Code & Unused Parameter Audit
 npx tsc --noEmit --noUnusedLocals --noUnusedParameters
 
-# 3. Production Bundle Compilation (Verifies Metro bundler routes and assets)
+# 4. Production Bundle Compilation (Verifies Metro bundler routes and assets)
 $env:EXPO_NO_TELEMETRY="1"; npx expo export --output-dir temp_export
 # On macOS/Linux: EXPO_NO_TELEMETRY=1 npx expo export --output-dir temp_export
 # Remove output afterwards: rm -rf temp_export
@@ -46,7 +49,7 @@ Expected output: All commands must exit with code 0 and produce zero errors.
 
 ### 3. Search, Filter, Sort, and Pinning
 - [ ] **Category Filter Chips**: Tap a category chip (e.g., "Work"). Expected: List filters to show only records matching that category. Tap again or tap "All" to clear.
-- [ ] **Text Search**: Type a search keyword. Expected: Real-time debounced query filters results by title and notes via ILIKE.
+- [ ] **Text Search**: Type a search keyword. Expected: Real-time debounced query filters results by title and notes via Postgres FTS (`search_tsv`) with ILIKE fallback.
 - [ ] **Special Character Search**: Enter `%`, `_`, `\`, `'`, and commas `,` in the search field. Expected: Query executes safely without crashing PostgREST or throwing syntax errors.
 - [ ] **Combined Search & Filter**: Select category "Personal" and type a search term. Expected: Returns intersection of category match and text search match.
 - [ ] **Sort Menu Options**: Tap the sort button in the list header. Switch between "Newest", "Oldest", and "Title A–Z". Expected: FlatList reorders immediately according to the selected option.
@@ -58,13 +61,15 @@ Expected output: All commands must exit with code 0 and produce zero errors.
 ### 4. Image Handling & Edge Cases
 - [ ] **Permission Cancellation**: Tap camera or gallery and cancel without taking/selecting a photo. Expected: App resumes without crashing or hanging.
 - [ ] **Large Photo Compression**: Capture a high-resolution photo from a device camera (> 10MB). Expected: Image is resized and compressed to < 800KB before upload, completing within seconds on standard network.
-- [ ] **Fullscreen Image Viewer**: On the note detail screen, tap the hero image. Expected: Opens modal fullscreen image viewer with close button and pan/zoom capability.
+- [ ] **Fullscreen Image Viewer**: On the note detail screen, tap the hero image. Expected: Opens modal fullscreen image viewer with close button; pinch to zoom and double-tap to toggle zoom.
+- [ ] **Multiple Photos**: Add up to 5 photos on create/edit. Expected: thumbnails render; removing one updates the set; save persists all paths.
+- [ ] **Offline Create**: Enable Airplane mode, create a note. Expected: note appears with pending sync; after reconnect it uploads and clears pending count.
 - [ ] **Signed URL Expiration & Refresh**: Leave the app idle or advance device clock by 2 hours. Expected: Signed URLs regenerate automatically on next view without showing broken image icons.
 
 ### 5. Network & Offline Awareness
-- [ ] **Disconnect Network**: Turn on Airplane mode or disable Wi-Fi/cellular. Expected: "No internet connection" banner appears at the top of active screens.
-- [ ] **Blocked Mutations Offline**: Attempt to create, edit, or delete a note while offline. Expected: Action is blocked and non-blocking toast appears ("Cannot perform action while offline").
-- [ ] **Reconnect Network**: Turn off Airplane mode. Expected: Offline banner disappears; normal operations resume.
+- [ ] **Disconnect Network**: Turn on Airplane mode or disable Wi-Fi/cellular. Expected: "No internet connection" banner appears at the top of active screens; cached list still renders when available.
+- [ ] **Offline Queue**: Create, edit, or delete a note while offline. Expected: Change is saved locally, pending sync count updates, and a toast confirms offline save (pin/share still require connectivity).
+- [ ] **Reconnect Network**: Turn off Airplane mode. Expected: Offline banner disappears; outbox flushes automatically and pending sync count returns to zero.
 
 ### 6. Security & Row Level Security (RLS) Isolation
 - [ ] **Cross-User Data Isolation**:
