@@ -4,11 +4,8 @@ A mobile notes and media capture application built with React Native, Expo, and 
 
 **GitHub Repository:** https://github.com/jkxroot/smart-capture-notes
 
-**Installable Android APK (Direct Download):**  
-https://expo.dev/artifacts/eas/HwHpihW8MNXkbk_I0MUUJC89Ok7F9FFUry3CcBQ8unQ.apk  
-*EAS Build Overview:* https://expo.dev/accounts/jkxroot1/projects/smart-capture/builds/9cefa88a-362d-4014-b200-bbffc1479e26
 
-**Walkthrough Video:** [Demo Video Link (YouTube / Loom)](#)
+**Google Drive** (APK, Screenshots & Demo Video): https://drive.google.com/drive/folders/1YSlYqsNt1-ayXJpTjFlUZ1kch2KNXF6u?usp=sharing&pli=1
 
 ---
 
