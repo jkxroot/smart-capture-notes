@@ -116,10 +116,6 @@ Scan the QR code with Expo Go (Android) or the native Camera app (iOS).
 
 ---
 
-> Note: In the Supabase Dashboard under **Authentication > Email Auth**, disable "Confirm email" for immediate evaluation during local development.
-
----
-
 ## Project Structure
 
 ```
